@@ -1,0 +1,46 @@
+{
+  "name": "@agent-town/bridge",
+  "version": "0.1.1",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agent-town-mcp": "dist/index.js",
+    "agent-town-simulate": "dist/simulator.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "simulate": "node dist/simulator.js",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-town/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "chokidar": "^4.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/ws": "^8.18.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.1"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/the-noname-devs/agent-bridge.git",
+    "directory": "packages/bridge"
+  },
+  "homepage": "https://agent-town.dev"
+}

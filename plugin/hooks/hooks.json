@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "agent-town",
+            "tool": "claim_file",
+            "arguments": {
+              "path": "{{tool_input.file_path}}"
+            },
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

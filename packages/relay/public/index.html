@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Town — Live</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #141925; --panel-2: #1b2230; --border: #26304a;
+    --text: #e6eaf2; --muted: #8a93a6; --online: #34d399; --idle: #fbbf24;
+    --offline: #6b7280; --conflict: #f87171; --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+    border-bottom: 1px solid var(--border); background: var(--panel); flex: none;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .repo { color: var(--muted); } .repo b { color: var(--accent); font-family: ui-monospace, monospace; }
+  .conn { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .conn .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--offline); }
+  .conn.live .dot { background: var(--online); box-shadow: 0 0 8px var(--online); }
+  .team { color: var(--accent); font-family: ui-monospace, monospace; }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  .town { flex: 1 1 50%; position: relative; min-width: 0; background: #4f7a3a; }
+  .town canvas { display: block; width: 100%; height: 100%; }
+  .dash {
+    flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; gap: 14px;
+    padding: 14px; overflow-y: auto; border-left: 1px solid var(--border); background: var(--bg);
+  }
+  @media (max-width: 900px) {
+    body { overflow: auto; height: auto; }
+    main { flex-direction: column; }
+    .town { height: 56vh; flex: none; }
+    .dash { border-left: none; border-top: 1px solid var(--border); }
+  }
+
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+  .board { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .agent { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; transition: border-color .2s, box-shadow .2s; }
+  .agent.conflict { border-color: var(--conflict); box-shadow: 0 0 0 1px var(--conflict), 0 0 18px rgba(248,113,113,.35); }
+  .agent .top { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 600; color: #0b0e14; }
+  .agent .name { font-weight: 600; }
+  .agent .status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .sdot { width: 8px; height: 8px; border-radius: 50%; background: var(--offline); }
+  .sdot.online { background: var(--online); } .sdot.idle { background: var(--idle); } .sdot.offline { background: var(--offline); }
+  .file { margin-top: 10px; font-family: ui-monospace, monospace; font-size: 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; word-break: break-all; min-height: 32px; }
+  .file.empty { color: var(--muted); font-style: italic; }
+  .empty-state { color: var(--muted); padding: 24px; text-align: center; border: 1px dashed var(--border); border-radius: 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .feed { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+  .msg { font-size: 13px; }
+  .msg .who { font-weight: 600; color: var(--accent); }
+  .msg.conflict-msg .who { color: var(--conflict); }
+  .msg .t { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .feed .placeholder, .locks .placeholder { color: var(--muted); font-style: italic; }
+  .locks { margin: 0; padding: 0; } .locks li { font-family: ui-monospace, monospace; font-size: 12px; list-style: none; padding: 4px 0; color: var(--muted); }
+  .locks .owner { color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏘️ Agent Town</h1>
+  <span class="repo">repo <b id="repoLabel">—</b></span>
+  <span style="color:var(--muted)">team <span class="team" id="teamLabel">—</span></span>
+  <span class="conn" id="conn"><span class="dot"></span><span id="connText">connecting…</span></span>
+</header>
+<main>
+  <div class="town"><canvas id="town"></canvas></div>
+  <div class="dash">
+    <section>
+      <h2>Agents on this team</h2>
+      <div class="board" id="board"></div>
+      <div class="empty-state" id="emptyState" hidden>No agents online yet. Start the simulator to bring the town to life.</div>
+    </section>
+    <div class="panel">
+      <h2>Activity &amp; chat</h2>
+      <div class="feed" id="feed"><div class="placeholder">Waiting for activity…</div></div>
+    </div>
+    <div class="panel">
+      <h2>Active locks</h2>
+      <ul class="locks" id="locks"><li class="placeholder">none</li></ul>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var teamKey = params.get("team") || "team-demo";
+  var repo = params.get("repo") || "agent-town";
+  document.getElementById("teamLabel").textContent = teamKey;
+  document.getElementById("repoLabel").textContent = repo;
+
+  // ---------- helpers ----------
+  var COLORS = ["#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a78bfa", "#fb923c", "#22d3ee", "#f87171", "#c084fc", "#4ade80"];
+  function hashStr(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+  function colorFor(id) { return COLORS[hashStr(id) % COLORS.length]; }
+  function initials(name) { var p = name.trim().split(/\s+/); return (p[0][0] + (p[1] ? p[1][0] : "")).toUpperCase(); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function baseName(p) { var x = p.split(/[\\/]/); return x[x.length - 1]; }
+  function shortPath(p) { var x = p.split(/[\\/]/); return x.slice(-2).join("/"); }
+  var ROOTS = { src: 1, app: 1, packages: 1, apps: 1, dist: 1 };
+  // path -> { repo, folder, file, key }. Repo = first segment when the path looks
+  // repo-prefixed (>=3 segments and not a known build root); else falls back to ?repo=.
+  function parsePath(path) {
+    var parts = path.split(/[\\/]/).filter(Boolean);
+    var rp = repo, rest = parts;
+    if (parts.length >= 3 && !ROOTS[parts[0]]) { rp = parts[0]; rest = parts.slice(1); }
+    var i = 0; while (i < rest.length - 1 && ROOTS[rest[i]]) i++;
+    var folder = (rest.length > 1 && i < rest.length - 1) ? rest[i] : "root";
+    return { repo: rp, folder: folder, file: parts[parts.length - 1], key: rp + "/" + folder };
+  }
+  function clock() { return new Date().toLocaleTimeString(); }
+  // deterministic pseudo-random in [0,1) from integer seed
+  function rand01(seed) { var x = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+  // ============================================================
+  //  DASHBOARD (right pane)
+  // ============================================================
+  function renderDashboard(state) {
+    var board = document.getElementById("board"), emptyState = document.getElementById("emptyState");
+    var agents = (state.agents || []).filter(function (a) { return a.machineId !== "observer"; });
+    if (agents.length === 0) { board.innerHTML = ""; emptyState.hidden = false; }
+    else {
+      emptyState.hidden = true;
+      board.innerHTML = agents.map(function (a) {
+        var color = colorFor(a.agentId);
+        var file = (a.activeFiles && a.activeFiles[0]) ? a.activeFiles[0] : "";
+        return '<div class="agent" data-agent="' + esc(a.agentId) + '">' +
+          '<div class="top"><div class="avatar" style="background:' + color + '">' + esc(initials(a.userName)) + '</div>' +
+          '<div><div class="name">' + esc(a.userName) + '</div>' +
+          '<div class="status"><span class="sdot ' + esc(a.status) + '"></span>' + esc(a.status) + '</div></div></div>' +
+          '<div class="file' + (file ? '' : ' empty') + '">' + (file ? '📝 ' + esc(shortPath(file)) : 'idle — no file') + '</div></div>';
+      }).join("");
+    }
+    var locks = document.getElementById("locks"), lk = (state.locks || []);
+    locks.innerHTML = lk.length === 0 ? '<li class="placeholder">none</li>'
+      : lk.map(function (l) { return '<li>🔒 ' + esc(shortPath(l.path)) + ' — <span class="owner">' + esc(l.userName) + '</span></li>'; }).join("");
+  }
+  function addFeed(html, cls) {
+    var feed = document.getElementById("feed"), ph = feed.querySelector(".placeholder");
+    if (ph) ph.remove();
+    var div = document.createElement("div"); div.className = "msg" + (cls ? " " + cls : ""); div.innerHTML = html;
+    feed.insertBefore(div, feed.firstChild);
+    while (feed.children.length > 60) feed.removeChild(feed.lastChild);
+  }
+  function flashDashAgent(agentId) {
+    var el = document.querySelector('.agent[data-agent="' + (window.CSS && CSS.escape ? CSS.escape(agentId) : agentId) + '"]');
+    if (el) { el.classList.add("conflict"); setTimeout(function () { el.classList.remove("conflict"); }, 4000); }
+  }
+
+  // ============================================================
+  //  TOWN (left pane, canvas)
+  // ============================================================
+  var canvas = document.getElementById("town"), ctx = canvas.getContext("2d");
+  var W = 0, H = 0, dpr = 1;
+  var chars = {};            // agentId -> char
+  var houses = {};           // folderKey -> house
+  var houseOrder = [];
+  var GATE = { x: 0, y: 0 };
+  var HOUSE_CAP = 8;
+  var decor = { trees: [], bushes: [], flowers: [], lamps: [] };
+  var plaza = { x: 0, y: 0, rx: 0, ry: 0 };
+  var sparkles = [];         // {x,y,vy,life,max,text,color}
+  var ticker = [];           // {icon,text,color,t}
+  var prevFiles = {};        // agentId -> {file:1}
+
+  function resize() {
+    var rect = canvas.parentElement.getBoundingClientRect();
+    dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.max(320, Math.floor(rect.width)); H = Math.max(320, Math.floor(rect.height));
+    canvas.width = Math.floor(W * dpr); canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.imageSmoothingEnabled = false;
+    GATE.x = W / 2; GATE.y = H - 30;
+    layout();
+  }
+  window.addEventListener("resize", resize);
+
+  function parkTop() { return Math.min(H * 0.6, H - 150); }
+
+  function layout() {
+    // houses grid
+    var n = houseOrder.length;
+    var cols = Math.max(2, Math.min(4, Math.floor(W / 210)));
+    if (n > 0) {
+      var rows = Math.ceil(n / cols);
+      var topPad = 58, areaH = Math.min(parkTop() - topPad, 90 + rows * 150);
+      var cellW = W / cols, cellH = areaH / rows;
+      var hw = Math.min(120, cellW - 40), hh = Math.min(80, cellH - 70);
+      for (var i = 0; i < n; i++) {
+        var h = houses[houseOrder[i]], c = i % cols, r = Math.floor(i / cols);
+        h.w = hw; h.h = hh;
+        h.x = c * cellW + (cellW - hw) / 2;
+        h.y = topPad + r * cellH + (cellH - hh) / 2 - 6;
+      }
+    }
+    // plaza in the park
+    plaza.x = W / 2; plaza.y = (parkTop() + (H - 30)) / 2;
+    plaza.rx = Math.min(120, W * 0.2); plaza.ry = Math.min(52, plaza.rx * 0.42);
+
+    // decor — deterministic, placed in the park & borders, avoiding plaza
+    decor.trees = []; decor.bushes = []; decor.flowers = []; decor.lamps = [];
+    var pt = parkTop();
+    for (var t = 0; t < 7; t++) {
+      var tx = 24 + rand01(t * 3 + 1) * (W - 48);
+      var ty = pt + 12 + rand01(t * 3 + 2) * (H - pt - 50);
+      if (Math.hypot(tx - plaza.x, (ty - plaza.y) * 2.2) < plaza.rx + 30) { tx = tx < plaza.x ? plaza.x - plaza.rx - 24 : plaza.x + plaza.rx + 24; }
+      decor.trees.push({ x: tx, y: ty, s: 0.8 + rand01(t * 7 + 5) * 0.6 });
+    }
+    for (var b = 0; b < 9; b++) decor.bushes.push({ x: 16 + rand01(b * 5 + 9) * (W - 32), y: pt + 6 + rand01(b * 5 + 11) * (H - pt - 40) });
+    for (var f = 0; f < 16; f++) decor.flowers.push({ x: 12 + rand01(f * 9 + 3) * (W - 24), y: pt + rand01(f * 9 + 7) * (H - pt - 30), c: ["#f6c1d2", "#f7e98e", "#cdb4f6", "#ff9aa2"][f % 4] });
+    decor.lamps = [{ x: plaza.x - plaza.rx - 14, y: plaza.y }, { x: plaza.x + plaza.rx + 14, y: plaza.y }];
+  }
+
+  function ensureHouse(parsed) {
+    var key = parsed.key, label = parsed.folder, repoName = parsed.repo;
+    if (houses[key]) return houses[key];
+    if (houseOrder.length >= HOUSE_CAP) { key = "misc"; label = "misc"; if (houses[key]) return houses[key]; }
+    var walls = ["#f4d6a8", "#e8b4b8", "#bcd4e6", "#cbe6bc", "#e6d6f4", "#f4e6bc", "#d6e6e6", "#f0c6a0"];
+    var roofs = ["#9a4b3b", "#6b7f9a", "#7a9a5a", "#9a5a7a", "#b07a3a", "#5a8a8a"];
+    var h = { key: key, label: label, repo: repoName, x: 0, y: 0, w: 110, h: 76,
+      wall: walls[houseOrder.length % walls.length], roof: roofs[houseOrder.length % roofs.length],
+      files: {}, flashUntil: 0 };
+    houses[key] = h; houseOrder.push(key); layout();
+    return h;
+  }
+
+  function wanderTarget() {
+    var pad = 30, top = parkTop() + 10;
+    var x, y, tries = 0;
+    do { x = pad + Math.random() * (W - 2 * pad); y = top + Math.random() * (H - top - 36); tries++; }
+    while (tries < 6 && Math.hypot(x - plaza.x, (y - plaza.y) * 2) < plaza.rx + 10);
+    return { x: x, y: y };
+  }
+
+  function pushTicker(icon, text, color) {
+    ticker.unshift({ icon: icon, text: text, color: color || "#cbd3e1", t: performance.now() });
+    if (ticker.length > 6) ticker.pop();
+  }
+  function spawnSparkle(x, y, text, color) { sparkles.push({ x: x, y: y, vy: -22, life: 0, max: 1.4, text: text, color: color }); }
+
+  function syncTown(state) {
+    var agents = (state.agents || []).filter(function (a) { return a.machineId !== "observer"; });
+    var seen = {};
+    for (var k in houses) houses[k].files = {};
+
+    agents.forEach(function (a) {
+      seen[a.agentId] = true;
+      var ch = chars[a.agentId];
+      if (!ch) {
+        ch = { id: a.agentId, name: a.userName, color: colorFor(a.agentId),
+          x: GATE.x + (Math.random() * 40 - 20), y: GATE.y, tx: GATE.x, ty: GATE.y,
+          status: a.status, file: "", folderKey: "", mode: "idle", facingLeft: false,
+          walk: 0, idleUntil: 0, bubble: "", bubbleUntil: 0, conflictUntil: 0, alpha: 1, _wander: false };
+        chars[a.agentId] = ch;
+        pushTicker("🚪", a.userName + " joined the town", "#9be4b0");
+      }
+      ch.name = a.userName; ch.status = a.status;
+      var file = (a.activeFiles && a.activeFiles[0]) ? a.activeFiles[0] : "";
+
+      // live-data: detect newly-touched files since last state
+      var nowFiles = {}; (a.activeFiles || []).forEach(function (f) { nowFiles[f] = 1; });
+      var prev = prevFiles[a.agentId] || {};
+      for (var nf in nowFiles) if (!prev[nf]) {
+        var pp = parsePath(nf), hk = ensureHouse(pp);
+        spawnSparkle(hk.x + hk.w / 2, hk.y - 6, "✏", ch.color);
+        pushTicker("✏", a.userName + " → " + pp.repo + "/" + baseName(nf), ch.color);
+      }
+      prevFiles[a.agentId] = nowFiles;
+
+      ch.file = file;
+      if (file && a.status !== "offline") {
+        var p = parsePath(file), h = ensureHouse(p); ch.folderKey = h.key; ch.repo = p.repo;
+        h.files[file] = (h.files[file] || 0) + 1; ch.mode = "edit";
+      } else { ch.folderKey = ""; ch.repo = ""; ch.mode = "idle"; }
+    });
+    var rset = {}; for (var rk in houses) rset[houses[rk].repo] = 1;
+    var rl = Object.keys(rset);
+    document.getElementById("repoLabel").textContent = rl.length ? rl.join(", ") : repo;
+
+    var perHouse = {};
+    for (var id in chars) {
+      var c = chars[id];
+      if (!seen[id]) { if (c.mode !== "leaving") pushTicker("👋", c.name + " left", "#cbd3e1"); c.mode = "leaving"; c.tx = GATE.x; c.ty = GATE.y; delete prevFiles[id]; continue; }
+      if (c.mode === "edit") (perHouse[c.folderKey] = perHouse[c.folderKey] || []).push(c);
+    }
+    for (var hk2 in perHouse) {
+      var h2 = houses[hk2], list = perHouse[hk2], m = list.length;
+      list.forEach(function (c, i) { c.tx = h2.x + h2.w * (i + 1) / (m + 1); c.ty = h2.y + h2.h + 16; });
+    }
+    for (var id2 in chars) {
+      var c2 = chars[id2];
+      if (c2.mode === "idle" && !c2._wander) { var t = wanderTarget(); c2.tx = t.x; c2.ty = t.y; c2._wander = true; }
+      if (c2.mode === "edit") c2._wander = false;
+    }
+  }
+
+  function townBubble(agentId, msg) { var c = chars[agentId]; if (c) { c.bubble = msg; c.bubbleUntil = performance.now() + 4500; } }
+  function townConflict(claimedBy, requestedBy, path) {
+    var until = performance.now() + 4000;
+    [claimedBy, requestedBy].forEach(function (p) { if (p && chars[p.agentId]) chars[p.agentId].conflictUntil = until; });
+    var h = houses[parsePath(path).key]; if (h) h.flashUntil = until;
+    pushTicker("⚠", "conflict · " + baseName(path), "#f87171");
+  }
+
+  // ---------- drawing ----------
+  function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+  function drawGround() {
+    // soft grass gradient
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#74b558"); g.addColorStop(0.6, "#69ab4c"); g.addColorStop(1, "#5d9d42");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // gentle tile mottling + grass blades (deterministic, subtle)
+    var t = 34;
+    for (var y = 0; y < H; y += t) for (var x = 0; x < W; x += t) {
+      var s = (x / t) * 73 + (y / t) * 131;
+      if (((x / t + y / t) & 1)) { ctx.fillStyle = "rgba(255,255,255,.025)"; ctx.fillRect(x, y, t, t); }
+      if (rand01(s) > 0.6) { ctx.strokeStyle = "rgba(40,90,30,.18)"; ctx.beginPath(); var bx = x + rand01(s + 1) * t, by = y + rand01(s + 2) * t; ctx.moveTo(bx, by); ctx.lineTo(bx - 1, by - 3); ctx.moveTo(bx + 2, by); ctx.lineTo(bx + 2, by - 3); ctx.stroke(); }
+    }
+    // plaza with fountain
+    ctx.fillStyle = "#cbb89c"; ctx.beginPath(); ctx.ellipse(plaza.x, plaza.y, plaza.rx, plaza.ry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.12)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(plaza.x, plaza.y, plaza.rx, plaza.ry, 0, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
+    // cobble dots
+    for (var i = 0; i < 30; i++) { var a = i / 30 * Math.PI * 2; ctx.fillStyle = "rgba(0,0,0,.06)"; ctx.fillRect(plaza.x + Math.cos(a) * plaza.rx * 0.7 - 2, plaza.y + Math.sin(a) * plaza.ry * 0.7 - 2, 4, 4); }
+  }
+
+  function drawTree(x, y, s) {
+    ctx.fillStyle = "rgba(0,0,0,.16)"; ctx.beginPath(); ctx.ellipse(x, y + 14 * s, 14 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#7a5230"; ctx.fillRect(x - 3 * s, y, 6 * s, 16 * s);
+    ctx.fillStyle = "#327a2e"; ctx.beginPath(); ctx.arc(x, y - 6 * s, 16 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#3f9438"; ctx.beginPath(); ctx.arc(x - 7 * s, y - 3 * s, 10 * s, 0, Math.PI * 2); ctx.arc(x + 8 * s, y - 8 * s, 9 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.beginPath(); ctx.arc(x + 5 * s, y - 12 * s, 5 * s, 0, Math.PI * 2); ctx.fill();
+  }
+  function drawBush(x, y) { ctx.fillStyle = "#3a8a36"; ctx.beginPath(); ctx.arc(x - 5, y, 6, 0, Math.PI * 2); ctx.arc(x + 4, y, 7, 0, Math.PI * 2); ctx.arc(x, y - 3, 7, 0, Math.PI * 2); ctx.fill(); }
+  function drawFlower(f) { ctx.fillStyle = f.c; ctx.fillRect(f.x - 2, f.y - 2, 2, 2); ctx.fillRect(f.x + 1, f.y - 2, 2, 2); ctx.fillRect(f.x - 2, f.y + 1, 2, 2); ctx.fillRect(f.x + 1, f.y + 1, 2, 2); ctx.fillStyle = "#f7e98e"; ctx.fillRect(f.x, f.y, 1, 1); }
+  function drawLamp(l, now) {
+    ctx.fillStyle = "rgba(0,0,0,.16)"; ctx.beginPath(); ctx.ellipse(l.x, l.y + 2, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#3a3f4a"; ctx.fillRect(l.x - 1, l.y - 22, 2, 24);
+    var glow = 0.5 + 0.2 * Math.sin(now / 600);
+    ctx.fillStyle = "rgba(255,224,130," + glow + ")"; ctx.beginPath(); ctx.arc(l.x, l.y - 24, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#ffe082"; ctx.fillRect(l.x - 2, l.y - 26, 4, 5);
+  }
+  function drawFountain(now) {
+    var x = plaza.x, y = plaza.y;
+    ctx.fillStyle = "#9aa7b0"; ctx.beginPath(); ctx.ellipse(x, y, 26, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#b8c2c9"; ctx.beginPath(); ctx.ellipse(x, y - 1, 26, 11, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#5fb6e6"; ctx.beginPath(); ctx.ellipse(x, y, 20, 8, 0, 0, Math.PI * 2); ctx.fill();
+    // ripples
+    var rp = (now / 700) % 1; ctx.strokeStyle = "rgba(255,255,255," + (0.5 * (1 - rp)) + ")"; ctx.beginPath(); ctx.ellipse(x, y, 4 + rp * 16, (4 + rp * 16) * 0.4, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#cfe9f7"; ctx.fillRect(x - 1, y - 18, 2, 12);
+    for (var i = 0; i < 4; i++) { var a = (now / 300 + i) % 4; ctx.globalAlpha = 1 - a / 4; ctx.fillRect(x - 1 + (i % 2 ? 1 : -1) * a * 2, y - 18 + a * 4, 2, 2); ctx.globalAlpha = 1; }
+  }
+
+  function drawHouse(h, now) {
+    var x = h.x, y = h.y, w = h.w, hh = h.h;
+    ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.ellipse(x + w / 2, y + hh + 6, w / 2, 7, 0, 0, Math.PI * 2); ctx.fill();
+    // garden patch
+    ctx.fillStyle = "#5a8f3e"; ctx.fillRect(x - 4, y + hh - 3, w + 8, 5);
+    // walls
+    ctx.fillStyle = h.wall; ctx.fillRect(x, y + 18, w, hh - 18);
+    ctx.fillStyle = "rgba(0,0,0,.06)"; ctx.fillRect(x, y + hh - 6, w, 6);
+    ctx.strokeStyle = "rgba(0,0,0,.22)"; ctx.strokeRect(x + .5, y + 18.5, w - 1, hh - 18.5);
+    // roof
+    ctx.fillStyle = h.roof; ctx.beginPath(); ctx.moveTo(x - 7, y + 20); ctx.lineTo(x + w / 2, y - 8); ctx.lineTo(x + w + 7, y + 20); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.beginPath(); ctx.moveTo(x + w / 2, y - 8); ctx.lineTo(x + w + 7, y + 20); ctx.lineTo(x + w / 2, y + 20); ctx.closePath(); ctx.fill();
+    // chimney + smoke when active
+    var lit = Object.keys(h.files).length;
+    ctx.fillStyle = "#6b4030"; ctx.fillRect(x + w - 22, y - 2, 7, 12);
+    if (lit > 0) { for (var s = 0; s < 3; s++) { var pp = ((now / 700) + s / 3) % 1; ctx.fillStyle = "rgba(220,220,220," + (0.4 * (1 - pp)) + ")"; ctx.beginPath(); ctx.arc(x + w - 18 + pp * 4, y - 4 - pp * 16, 2 + pp * 3, 0, Math.PI * 2); ctx.fill(); } }
+    // door
+    var dw = 16, dx = x + w / 2 - dw / 2;
+    ctx.fillStyle = "#6b4525"; roundRect(dx, y + hh - 24, dw, 24, 3); ctx.fill();
+    ctx.fillStyle = "#caa46a"; ctx.fillRect(dx + dw - 5, y + hh - 14, 2, 2);
+    // windows = rooms
+    var winCount = Math.max(2, Math.min(4, Math.max(lit, 2)));
+    var ww = 12, gap = (w - winCount * ww) / (winCount + 1);
+    for (var i = 0; i < winCount; i++) {
+      var wx = x + gap + i * (ww + gap), wy = y + 24, on = i < lit;
+      if (on) { ctx.fillStyle = "rgba(255,233,168,.4)"; ctx.fillRect(wx - 3, wy - 3, ww + 6, ww + 6); }
+      ctx.fillStyle = on ? "#ffe9a8" : "#3a4a5a"; ctx.fillRect(wx, wy, ww, ww);
+      ctx.strokeStyle = "rgba(0,0,0,.3)"; ctx.strokeRect(wx + .5, wy + .5, ww - 1, ww - 1);
+      ctx.beginPath(); ctx.moveTo(wx + ww / 2, wy); ctx.lineTo(wx + ww / 2, wy + ww); ctx.moveTo(wx, wy + ww / 2); ctx.lineTo(wx + ww, wy + ww / 2); ctx.stroke();
+    }
+    if (h.flashUntil > now) { ctx.strokeStyle = "rgba(248,113,113," + (0.4 + 0.5 * Math.abs(Math.sin(now / 120))) + ")"; ctx.lineWidth = 3; ctx.strokeRect(x - 4, y - 9, w + 8, hh + 15); ctx.lineWidth = 1; }
+    // sign (repo / folder)
+    ctx.font = "11px ui-monospace, monospace";
+    var signText = h.repo + "/" + h.label;
+    var fw = ctx.measureText(signText).width + 14, sx = x + w / 2 - fw / 2, sy = y + hh + 7;
+    ctx.fillStyle = "#7a5230"; ctx.fillRect(x + w / 2 - 1, y + hh + 1, 2, 7);
+    ctx.fillStyle = "#caa46a"; roundRect(sx, sy, fw, 16, 4); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.3)"; roundRect(sx, sy, fw, 16, 4); ctx.stroke();
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#6b4a8a"; ctx.fillText(h.repo + "/", x + w / 2 - ctx.measureText(h.label).width / 2, sy + 8);
+    ctx.fillStyle = "#3a2a14"; ctx.fillText(h.label, x + w / 2 + ctx.measureText(h.repo + "/").width / 2, sy + 8);
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "12px system-ui";
+  }
+
+  function drawChar(c, now) {
+    var x = Math.round(c.x), y = Math.round(c.y);
+    ctx.globalAlpha = c.alpha * 0.25; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(x, y + 1, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = c.alpha * (c.status === "offline" ? 0.4 : c.status === "idle" ? 0.82 : 1);
+    var moving = (Math.abs(c.tx - c.x) + Math.abs(c.ty - c.y)) > 1.5;
+    var legPhase = moving ? Math.floor(c.walk) % 2 : 0;
+    var sk = "#f1c89b", hair = "#3a2a1a", shirt = c.color;
+    ctx.fillStyle = "#33415c"; ctx.fillRect(x - 4, y - 6 + (legPhase ? 0 : 1), 3, 6); ctx.fillRect(x + 1, y - 6 + (legPhase ? 1 : 0), 3, 6);
+    ctx.fillStyle = shirt; ctx.fillRect(x - 5, y - 16, 10, 11);
+    ctx.fillRect(x - 7, y - 15, 2, 7); ctx.fillRect(x + 5, y - 15, 2, 7);
+    ctx.fillStyle = sk; ctx.fillRect(x - 7, y - 9, 2, 2); ctx.fillRect(x + 5, y - 9, 2, 2);
+    ctx.fillStyle = sk; ctx.fillRect(x - 5, y - 25, 10, 9);
+    ctx.fillStyle = hair; ctx.fillRect(x - 5, y - 26, 10, 4); ctx.fillRect(x - 5, y - 25, 2, 4); ctx.fillRect(x + 3, y - 25, 2, 4);
+    ctx.fillStyle = "#222"; if (c.facingLeft) { ctx.fillRect(x - 3, y - 21, 1, 2); ctx.fillRect(x, y - 21, 1, 2); } else { ctx.fillRect(x - 1, y - 21, 1, 2); ctx.fillRect(x + 2, y - 21, 1, 2); }
+    ctx.globalAlpha = 1;
+    if (c.status === "idle") { ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = "10px system-ui"; ctx.fillText("z", x + 7, y - 26); ctx.fillText("z", x + 11, y - 30); }
+    ctx.font = "11px system-ui"; ctx.textAlign = "center";
+    var nw = ctx.measureText(c.name).width + 8;
+    ctx.fillStyle = "rgba(11,14,20,.78)"; roundRect(x - nw / 2, y - 41, nw, 14, 4); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.fillText(c.name, x, y - 31);
+    if (c.mode === "edit" && c.file) {
+      var fn = baseName(c.file); ctx.font = "10px ui-monospace, monospace";
+      var fw = ctx.measureText(fn).width + 8;
+      ctx.fillStyle = "rgba(96,165,250,.22)"; roundRect(x - fw / 2, y - 56, fw, 13, 3); ctx.fill();
+      ctx.fillStyle = "#bcd9ff"; ctx.fillText(fn, x, y - 46);
+    }
+    ctx.textAlign = "left";
+    if (c.conflictUntil > now) { var s = 0.6 + 0.4 * Math.abs(Math.sin(now / 100)); ctx.fillStyle = "rgba(248,113,113," + s + ")"; ctx.font = "bold 16px system-ui"; ctx.textAlign = "center"; ctx.fillText("⚠", x, y - 58); ctx.textAlign = "left"; }
+    if (c.bubble && c.bubbleUntil > now) drawBubble(x, y - (c.mode === "edit" ? 70 : 56), c.bubble);
+  }
+
+  function drawBubble(x, y, text) {
+    ctx.font = "11px system-ui";
+    var maxW = 150, words = text.split(" "), lines = [], cur = "";
+    for (var i = 0; i < words.length; i++) { var test = cur ? cur + " " + words[i] : words[i]; if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = words[i]; } else cur = test; }
+    if (cur) lines.push(cur); lines = lines.slice(0, 3);
+    var bw = 0; lines.forEach(function (l) { bw = Math.max(bw, ctx.measureText(l).width); });
+    bw += 14; var bh = lines.length * 14 + 8, bx = x - bw / 2, by = y - bh;
+    bx = Math.max(4, Math.min(W - bw - 4, bx));
+    ctx.fillStyle = "#fff"; roundRect(bx, by, bw, bh, 6); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x - 5, by + bh - 1); ctx.lineTo(x + 5, by + bh - 1); ctx.lineTo(x, by + bh + 6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#1b2230"; ctx.textAlign = "center"; lines.forEach(function (l, i) { ctx.fillText(l, bx + bw / 2, by + 15 + i * 14); }); ctx.textAlign = "left";
+  }
+
+  function drawBanner() {
+    var rset = {}; for (var k in houses) rset[houses[k].repo] = 1;
+    var rl = Object.keys(rset);
+    var title = rl.length === 0 ? repo : rl.length === 1 ? rl[0] : rl.length + " repos";
+    var sub = rl.length > 1 ? rl.join(" · ") : "live workspace";
+    if (sub.length > 60) sub = sub.slice(0, 57) + "…";
+    ctx.font = "bold 15px system-ui"; var tw = ctx.measureText(title).width;
+    ctx.font = "9px system-ui"; var sw = ctx.measureText("⌂ " + sub).width;
+    var bw = Math.max(150, tw + 50, sw + 30), bh = 34, bx = W / 2 - bw / 2, by = 8;
+    // posts
+    ctx.fillStyle = "#6b4525"; ctx.fillRect(bx + 6, by, 4, bh + 8); ctx.fillRect(bx + bw - 10, by, 4, bh + 8);
+    ctx.fillStyle = "#caa46a"; roundRect(bx, by, bw, bh, 6); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,.35)"; roundRect(bx, by, bw, bh, 6); ctx.stroke();
+    ctx.fillStyle = "#3a2a14"; ctx.textAlign = "center";
+    ctx.fillText(title, W / 2, by + 16);
+    ctx.font = "9px system-ui"; ctx.fillStyle = "#6b5230"; ctx.fillText("⌂ " + sub, W / 2, by + 28);
+    ctx.textAlign = "left"; ctx.font = "12px system-ui";
+  }
+
+  function drawHUD(now) {
+    var n = 0; for (var k in chars) if (chars[k].status !== "offline") n++;
+    ctx.fillStyle = "rgba(11,14,20,.55)"; roundRect(10, 10, 150, 40, 8); ctx.fill();
+    var pulse = 0.5 + 0.5 * Math.sin(now / 400);
+    ctx.fillStyle = "rgba(52,211,153," + (0.5 + 0.5 * pulse) + ")"; ctx.beginPath(); ctx.arc(22, 24, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "11px system-ui"; ctx.fillText("LIVE", 32, 28);
+    ctx.fillStyle = "#cbd3e1"; ctx.fillText(n + " online · " + houseOrder.length + " folders", 20, 43);
+    ctx.font = "12px system-ui";
+  }
+
+  function drawTicker(now) {
+    if (ticker.length === 0) return;
+    var h = 22, y = H - h;
+    ctx.fillStyle = "rgba(11,14,20,.62)"; ctx.fillRect(0, y, W, h);
+    ctx.font = "11px system-ui"; ctx.textBaseline = "middle";
+    var x = 12;
+    for (var i = 0; i < ticker.length && x < W - 40; i++) {
+      var e = ticker[i], age = (now - e.t) / 1000, alpha = Math.max(0.35, 1 - age / 20);
+      var label = e.icon + " " + e.text;
+      ctx.globalAlpha = alpha; ctx.fillStyle = i === 0 ? e.color : "#aab2c0";
+      ctx.fillText(label, x, y + h / 2 + 1); ctx.globalAlpha = 1;
+      x += ctx.measureText(label).width + 18;
+      if (i < ticker.length - 1) { ctx.fillStyle = "rgba(255,255,255,.2)"; ctx.fillText("·", x - 11, y + h / 2 + 1); }
+    }
+    ctx.textBaseline = "alphabetic";
+  }
+
+  function drawVignette() {
+    var g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+    g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.22)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(50, now - last) / 1000; last = now;
+    for (var id in chars) {
+      var c = chars[id], dx = c.tx - c.x, dy = c.ty - c.y, dist = Math.hypot(dx, dy), speed = 48;
+      if (dist > 1.5) { var step = Math.min(dist, speed * dt); c.x += dx / dist * step; c.y += dy / dist * step; c.walk += dt * 6; if (Math.abs(dx) > 0.5) c.facingLeft = dx < 0; }
+      else if (c.mode === "idle") { if (!c.idleUntil) c.idleUntil = now + 1500 + Math.random() * 3000; if (now > c.idleUntil) { var t = wanderTarget(); c.tx = t.x; c.ty = t.y; c.idleUntil = 0; } }
+      if (c.mode === "leaving") { c.alpha -= dt * 0.8; if (c.alpha <= 0) delete chars[id]; } else c.alpha = Math.min(1, c.alpha + dt);
+    }
+    // sparkles
+    for (var i = sparkles.length - 1; i >= 0; i--) { var sp = sparkles[i]; sp.life += dt; sp.y += sp.vy * dt; if (sp.life >= sp.max) sparkles.splice(i, 1); }
+
+    ctx.clearRect(0, 0, W, H);
+    drawGround();
+    decor.bushes.forEach(drawBush);
+    decor.flowers.forEach(drawFlower);
+    decor.trees.forEach(function (t) { drawTree(t.x, t.y, t.s); });
+    drawFountain(now);
+    decor.lamps.forEach(function (l) { drawLamp(l, now); });
+    for (var hI = 0; hI < houseOrder.length; hI++) drawHouse(houses[houseOrder[hI]], now);
+    var list = []; for (var id2 in chars) list.push(chars[id2]); list.sort(function (a, b) { return a.y - b.y; });
+    list.forEach(function (c) { drawChar(c, now); });
+    // sparkles on top
+    sparkles.forEach(function (sp) { var a = 1 - sp.life / sp.max; ctx.globalAlpha = a; ctx.fillStyle = sp.color; ctx.font = "bold 13px system-ui"; ctx.textAlign = "center"; ctx.fillText(sp.text, sp.x, sp.y); ctx.globalAlpha = 1; ctx.textAlign = "left"; });
+    drawBanner(); drawHUD(now); drawTicker(now); drawVignette();
+    requestAnimationFrame(frame);
+  }
+
+  // ============================================================
+  //  WEBSOCKET (shared)
+  // ============================================================
+  var observerId = "observer-" + Math.random().toString(16).slice(2, 10);
+  var ws, hb;
+  function setConn(live, text) { var el = document.getElementById("conn"); el.classList.toggle("live", live); document.getElementById("connText").textContent = text; }
+  function connect() {
+    var proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(proto + "://" + location.host);
+    ws.onopen = function () {
+      setConn(true, "connected");
+      ws.send(JSON.stringify({ type: "register", agentId: observerId, userName: "Dashboard", machineId: "observer", teamKey: teamKey }));
+      hb = setInterval(function () { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "heartbeat", agentId: observerId })); }, 30000);
+    };
+    ws.onmessage = function (ev) {
+      var msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === "state") { renderDashboard(msg.state); syncTown(msg.state); }
+      else if (msg.type === "conflict") {
+        if (msg.requestedBy) flashDashAgent(msg.requestedBy.agentId);
+        if (msg.claimedBy) flashDashAgent(msg.claimedBy.agentId);
+        townConflict(msg.claimedBy, msg.requestedBy, msg.path);
+        addFeed('<span class="who">⚠ Conflict</span> on <code>' + esc(shortPath(msg.path)) + '</code> — ' + esc(msg.requestedBy ? msg.requestedBy.userName : "?") + ' vs ' + esc(msg.claimedBy ? msg.claimedBy.userName : "?") + '<span class="t">' + clock() + '</span>', "conflict-msg");
+      } else if (msg.type === "chat") {
+        if (msg.from) { townBubble(msg.from.agentId, msg.message); pushTicker("💬", (msg.from.userName) + ": " + msg.message, "#bcd9ff"); }
+        addFeed('<span class="who">' + esc(msg.from ? msg.from.userName : "?") + '</span>: ' + esc(msg.message) + '<span class="t">' + clock() + '</span>');
+      }
+    };
+    ws.onclose = function () { setConn(false, "reconnecting…"); clearInterval(hb); setTimeout(connect, 2000); };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+  connect();
+})();
+</script>
+</body>
+</html>

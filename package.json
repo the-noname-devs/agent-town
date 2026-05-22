@@ -1,0 +1,43 @@
+{
+  "name": "agent-town",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Real-time collaboration for Claude Code teams — see what your teammates' agents are editing",
+  "license": "MIT",
+  "homepage": "https://agent-town.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/the-noname-devs/agent-town.git"
+  },
+  "bugs": {
+    "url": "https://github.com/the-noname-devs/agent-town/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "collaboration",
+    "real-time",
+    "ai-agents",
+    "developer-tools"
+  ],
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.19.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
