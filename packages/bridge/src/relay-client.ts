@@ -122,6 +122,14 @@ export class RelayClient extends EventEmitter {
     });
   }
 
+  sendHeartbeat(): void {
+    this.send({
+      type: MessageType.Heartbeat,
+      agentId: this.config.agentId,
+      branch: this.currentBranch,
+    });
+  }
+
   sendChat(message: string): void {
     this.send({
       type: MessageType.SendChat,

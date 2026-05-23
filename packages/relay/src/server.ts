@@ -113,6 +113,55 @@ export class RelayServer {
         res.end(JSON.stringify(this.getTeamStates()));
         return;
       }
+      // POST /file-change — HTTP endpoint for PostToolUse hooks to report file edits
+      if (req.url === "/file-change" && req.method === "POST") {
+        let body = "";
+        req.on("data", (c) => { body += c; });
+        req.on("end", () => {
+          try {
+            const { teamKey, agentId, userName, path, action, chat } = JSON.parse(body);
+            if (teamKey && path) {
+              // Find agent by ID first, then fallback to matching by teamKey + userName
+              let matchedAgentId = agentId;
+              if (!this.agents.has(agentId)) {
+                for (const [id, agent] of this.agents) {
+                  if (agent.teamKey === teamKey && agent.info.userName === userName) {
+                    matchedAgentId = id;
+                    break;
+                  }
+                }
+              }
+
+              // Report the file change if we found the agent
+              if (this.agents.has(matchedAgentId)) {
+                this.handleFileChange(matchedAgentId, path, action || "edit");
+              }
+
+              // Add to activity log
+              this.addActivity(teamKey, {
+                agentId: matchedAgentId || "unknown",
+                userName: userName || "unknown",
+                path,
+                action: action || "edit",
+                timestamp: Date.now(),
+              });
+
+              // Send auto-chat if provided
+              if (chat && this.agents.has(matchedAgentId)) {
+                this.handleChat(matchedAgentId, chat);
+              }
+
+              this.broadcastState(teamKey);
+            }
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true }));
+          } catch {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false }));
+          }
+        });
+        return;
+      }
       res.writeHead(404);
       res.end("Not found");
     });
@@ -485,7 +534,7 @@ export class RelayServer {
 
       this.teamKeyCache.set(teamKey, {
         valid,
-        expiresAt: Date.now() + 60_000,
+        expiresAt: Date.now() + 300_000, // 5 min cache
       });
 
       if (!valid) {

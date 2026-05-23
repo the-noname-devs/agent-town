@@ -32,7 +32,7 @@ export class FileWatcher extends EventEmitter {
       ],
       persistent: true,
       ignoreInitial: true,
-      depth: 5,
+      depth: 15,
     });
 
     this.watcher.on("error", (error) => {

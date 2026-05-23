@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "agent-town": {
-      "command": "npx",
-      "args": ["@agent-town/bridge"]
-    }
-  }
-}

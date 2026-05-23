@@ -69,23 +69,21 @@ export class BridgeMcpServer {
       this.relay.setBranch(branch);
       this.relay.connect();
 
-      // Poll branch every 30s to detect switches
+      // Poll branch every 10s — send immediate heartbeat on change
+      let lastBranch = branch;
       this.branchPollTimer = setInterval(() => {
         const newBranch = getCurrentBranch();
-        if (this.relay) {
+        if (this.relay && newBranch !== lastBranch) {
+          lastBranch = newBranch;
           this.relay.setBranch(newBranch);
+          // Send heartbeat immediately so the relay sees the change
+          this.relay.sendHeartbeat();
         }
-      }, 30_000);
+      }, 10_000);
 
-      // Start file watcher
-      const basePath = process.cwd();
-      this.watcher = new FileWatcher(basePath);
-      this.watcher.on("file", (event: FileEvent) => {
-        if (this.relay?.isConnected()) {
-          this.relay.reportFileChange(event.path, event.action);
-        }
-      });
-      this.watcher.start(config.watchPaths);
+      // Kein FileWatcher — verbraucht zu viel RAM/CPU auf großen Monorepos
+      // und blockiert Heartbeats. File-Tracking läuft über die MCP Tools
+      // (claim_file wird automatisch bei Edit/Write via PostToolUse Hook aufgerufen).
     } catch {
       // Config not found — tools will report "not connected"
     }

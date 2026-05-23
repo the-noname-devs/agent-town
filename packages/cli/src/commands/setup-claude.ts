@@ -10,7 +10,7 @@ export async function setupClaude(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("🔧 Setting up Claude Code integration...\n");
+  console.log("Setting up Claude Code integration...\n");
 
   // 1. Setup MCP server in ~/.claude.json
   const claudeConfigPath = join(homedir(), ".claude.json");
@@ -29,7 +29,7 @@ export async function setupClaude(): Promise<void> {
   claudeConfig.mcpServers = mcpServers;
 
   writeFileSync(claudeConfigPath, JSON.stringify(claudeConfig, null, 2) + "\n");
-  console.log(`✅ MCP server added to ${claudeConfigPath}`);
+  console.log(`MCP server added to ${claudeConfigPath}`);
 
   // 2. Setup hooks in ~/.claude/settings.json
   const settingsPath = join(homedir(), ".claude", "settings.json");
@@ -43,33 +43,23 @@ export async function setupClaude(): Promise<void> {
 
   const hooks = (settings.hooks as Record<string, unknown[]>) ?? {};
 
-  // Add PostToolUse hook for auto-reporting file changes
+  // Remove old hooks, add new MCP-based hook
   hooks.PostToolUse = [
     ...(hooks.PostToolUse ?? []).filter(
-      (h: unknown) => !(h as Record<string, unknown>).__agentBridge
+      (h: unknown) => {
+        const hook = h as Record<string, unknown>;
+        return !hook.__agentBridge && !hook.__agentTown;
+      }
     ),
     {
-      __agentBridge: true,
+      __agentTown: true,
       matcher: "Edit|Write",
       hooks: [
         {
-          type: "command",
-          command: `node -e "
-const fs = require('fs');
-const path = require('path');
-const input = JSON.parse(fs.readFileSync('/dev/stdin', 'utf-8'));
-const filePath = input.tool_input?.file_path || input.tool_input?.path || '';
-if (filePath) {
-  const http = require('http');
-  const configPath = path.join(require('os').homedir(), '.agent-town', 'config.json');
-  if (fs.existsSync(configPath)) {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const url = new URL(config.relayUrl.replace(/^ws/, 'http') + '/webhook');
-    // Hooks just log — the MCP server handles actual relay communication
-  }
-}
-"`,
-          async: true,
+          type: "mcp_tool",
+          server: "agent-town",
+          tool: "claim_file",
+          input: { path: "${tool_input.file_path}" },
         },
       ],
     },
@@ -99,11 +89,10 @@ if (filePath) {
   settings.allowedTools = allowedTools;
 
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-  console.log(`✅ Hooks and allowed tools added to ${settingsPath}`);
+  console.log(`Allowed tools added to ${settingsPath}`);
 
-  console.log(`\n🎉 Setup complete! Claude Code will now:`);
+  console.log(`\nSetup complete! Claude Code will now:`);
   console.log(`   - Auto-connect to the relay when starting`);
-  console.log(`   - Report file changes automatically`);
   console.log(`   - Have tools to check team status and manage file locks`);
   console.log(`\nRestart Claude Code to activate.`);
 }
