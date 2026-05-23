@@ -21,6 +21,18 @@ No file contents leave your machine — only paths, presence info, and messages.
 
 ## Quick start
 
+### Quick start (hosted)
+
+```bash
+# 1. Login to agent-town.dev
+npx @agent-town/cli login
+
+# 2. Connect to Claude Code
+npx @agent-town/cli setup-claude
+
+# 3. Restart Claude Code — done!
+```
+
 ### Quick start (self-hosted)
 
 ```bash
@@ -68,7 +80,7 @@ Your Machine                    Cloud                     Teammate's Machine
 | Claude Code  |                                          | Claude Code  |
 |      |       |                                          |      |       |
 | MCP Bridge   |--- WebSocket ---> Relay Server <--- WS --| MCP Bridge   |
-| + Watcher    |                   (Fly.io /              | + Watcher    |
+|              |                   (Fly.io /              |              |
 +--------------+                    self-hosted)          +--------------+
 ```
 
@@ -105,8 +117,9 @@ open http://localhost:8787/?team=team-demo
 
 [agent-town.dev](https://agent-town.dev) offers a managed version:
 
-- **Free** — 1 team, 3 members, hosted relay
-- **Pro** — unlimited teams, priority relay, web dashboard, activity history
+- **Trial** — 14 days free, 1 team, 3 members, hosted relay
+- **Starter ($9/mo)** — 1 team, 10 members, hosted relay, web dashboard
+- **Pro ($29/mo)** — unlimited teams, priority relay, web dashboard, activity history
 - **Enterprise** — SSO, audit logs, custom relay regions, SLA
 
 The hosted relay runs at `wss://relay.agent-town.dev`. The web dashboard at `agent-town.dev` lets you create teams, manage members, and watch the Agent Town visualization live.

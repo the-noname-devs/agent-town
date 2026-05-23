@@ -96,7 +96,7 @@ function tick(bot: Bot): void {
 }
 
 function start(): void {
-  console.log(`Agent Bridge simulator → ${RELAY_URL} (team: ${TEAM_KEY}, bots: ${BOT_COUNT})`);
+  console.log(`Agent Town simulator → ${RELAY_URL} (team: ${TEAM_KEY}, bots: ${BOT_COUNT})`);
   for (let i = 0; i < BOT_COUNT; i++) {
     bots.push(makeBot(NAMES[i % NAMES.length] as string));
   }

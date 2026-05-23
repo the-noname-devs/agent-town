@@ -14,7 +14,7 @@ function loadConfig(): BridgeConfig {
   const configPath = join(homedir(), ".agent-town", "config.json");
   if (!existsSync(configPath)) {
     throw new Error(
-      `Config not found at ${configPath}. Run 'npx @agent-town/cli init' first.`
+      `Config not found at ${configPath}. Run 'npx @agent-town/cli login' (or 'init' for self-hosted).`
     );
   }
   return JSON.parse(readFileSync(configPath, "utf-8"));
@@ -100,7 +100,7 @@ export class BridgeMcpServer {
       async () => {
         if (!this.relay?.isConnected()) {
           return {
-            content: [{ type: "text", text: "Not connected to relay. Run 'npx @agent-town/cli init' to configure." }],
+            content: [{ type: "text", text: "Not connected to relay. Run 'npx @agent-town/cli login' to configure (or 'init' for self-hosted)." }],
           };
         }
 

@@ -6,7 +6,7 @@ export async function setupClaude(): Promise<void> {
   const configPath = join(homedir(), ".agent-town", "config.json");
 
   if (!existsSync(configPath)) {
-    console.error("Not configured. Run 'agent-town init' first.");
+    console.error("Not configured. Run 'agent-town login' or 'agent-town init' first.");
     process.exit(1);
   }
 

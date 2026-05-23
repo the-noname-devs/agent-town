@@ -7,7 +7,7 @@ export async function status(): Promise<void> {
   const configPath = join(homedir(), ".agent-town", "config.json");
 
   if (!existsSync(configPath)) {
-    console.error("Not configured. Run 'agent-town init' first.");
+    console.error("Not configured. Run 'agent-town login' or 'agent-town init' first.");
     process.exit(1);
   }
 
@@ -27,7 +27,7 @@ export async function status(): Promise<void> {
       return;
     }
 
-    console.log("Agent Bridge Status\n");
+    console.log("Agent Town Status\n");
 
     for (const agent of teamState.agents) {
       const icon = agent.status === "online" ? "🟢" : agent.status === "idle" ? "🟡" : "⚫";
