@@ -85,34 +85,35 @@ function generateSmartChat(relativePath, tracker) {
   const prevArea = tracker.currentArea;
   const editCount = (tracker.areaEditCount || 0) + 1;
 
-  // Same area — don't spam, only send at milestones
+  // Detect file type context
+  const typeLabel =
+    ["tsx", "jsx", "vue", "svelte"].includes(ext.slice(1)) ? "UI" :
+    file.includes("route") || file.includes("api") ? "API" :
+    file.includes("migration") || file.includes("schema") ? "DB" :
+    file.includes("test") ? "test" :
+    [".css", ".scss"].includes(ext) ? "style" :
+    [".json", ".yaml", ".toml"].includes(ext) ? "config" :
+    file.includes("hook") || file.includes("middleware") ? "infra" :
+    null;
+
+  const tag = typeLabel ? `[${typeLabel}]` : "";
+
+  // Same area — contextual per-file message
   if (prevArea === area) {
-    // Send summary update at 5, 15, 30 edits
-    if (editCount === 5) {
-      return { chat: null, shouldSend: false, summary: `Deep in ${area} (${editCount} edits)` };
-    }
-    if (editCount === 15) {
-      return { chat: null, shouldSend: false, summary: `Major work on ${area} (${editCount} edits)` };
-    }
-    // No message for regular edits in the same area
-    return { chat: null, shouldSend: false, summary: null };
+    const chat = `${tag} ${area}/${file}`.trim();
+    // Update summary at milestones
+    const summary = editCount === 5 ? `Deep in ${area} (${editCount} files)` :
+                    editCount === 15 ? `Major work on ${area} (${editCount} files)` :
+                    null;
+    return { chat, shouldSend: true, summary };
   }
 
-  // Area changed! Send a message
-  const context = [];
-  if (["tsx", "jsx", "vue", "svelte"].includes(ext.slice(1))) context.push("UI");
-  else if (file.includes("route") || file.includes("api")) context.push("API");
-  else if (file.includes("migration") || file.includes("schema")) context.push("database");
-  else if (file.includes("test")) context.push("tests");
-  else if ([".css", ".scss"].includes(ext)) context.push("styling");
-  else if ([".json", ".yaml", ".toml", ".env"].includes(ext)) context.push("config");
-
-  const what = context.length > 0 ? context[0] + " in " : "";
+  // Area changed — announce the switch
   const chat = prevArea
-    ? `moving to ${what}${area}/ (done with ${prevArea}/)`
-    : `starting ${what}${area}/`;
+    ? `${tag} → ${area}/${file} (was in ${prevArea}/)`
+    : `${tag} starting ${area}/${file}`;
 
-  return { chat, shouldSend: true, summary: `Working on ${what}${area}` };
+  return { chat: chat.trim(), shouldSend: true, summary: `Working on ${area}` };
 }
 
 // --- Main ---
