@@ -119,7 +119,7 @@ export class RelayServer {
         req.on("data", (c) => { body += c; });
         req.on("end", () => {
           try {
-            const { teamKey, agentId, userName, path, action, chat, repo } = JSON.parse(body);
+            const { teamKey, agentId, userName, path, action, chat, repo, workSummary } = JSON.parse(body);
             if (teamKey && path) {
               // Find agent by ID first, then fallback to matching by teamKey + userName (or base userName)
               let matchedAgentId = agentId;
@@ -158,6 +158,11 @@ export class RelayServer {
               // Send auto-chat if provided
               if (chat && this.agents.has(matchedAgentId)) {
                 this.handleChat(matchedAgentId, chat);
+              }
+
+              // Update work summary if provided
+              if (workSummary && this.agents.has(matchedAgentId)) {
+                (this.agents.get(matchedAgentId)!.info as any).workSummary = workSummary;
               }
 
               this.broadcastState(teamKey);

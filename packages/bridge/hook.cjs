@@ -5,27 +5,24 @@ const os = require("os");
 const { execSync } = require("child_process");
 
 // --- Git info ---
-// Finds git root + remote repo name for the given file
 function getGitInfo(filePath) {
   try {
     const dir = path.dirname(filePath);
     const root = execSync("git rev-parse --show-toplevel", { cwd: dir, encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }).trim();
-    let repo = path.basename(root); // fallback: folder name
+    let repo = path.basename(root);
     try {
       const remote = execSync("git remote get-url origin", { cwd: dir, encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }).trim();
-      // Parse "git@github.com:org/repo.git" or "https://github.com/org/repo.git"
       const match = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
-      if (match) repo = match[1]; // "org/repo"
+      if (match) repo = match[1];
     } catch {}
     const relativePath = path.relative(root, filePath).replace(/\\/g, "/");
     return { repo, relativePath, root };
   } catch {
-    return null; // not in a git repo
+    return null;
   }
 }
 
 // --- Session identity ---
-// Reads the active bridge's identity (written by MCP bridge on startup)
 function getSessionIdentity(config, cwd) {
   try {
     const activeDir = path.join(os.homedir(), ".agent-town", "active");
@@ -44,25 +41,78 @@ function getSessionIdentity(config, cwd) {
   return { userName: config.userName, agentId: config.agentId };
 }
 
-// --- Auto-chat messages ---
-function generateChat(filePath) {
-  const file = path.basename(filePath);
-  const dir = path.basename(path.dirname(filePath));
+// --- Smart chat: only on area changes, meaningful summaries ---
+function getEditTracker() {
+  const trackerPath = path.join(os.homedir(), ".agent-town", "edit-tracker.json");
+  try {
+    if (fs.existsSync(trackerPath)) {
+      const data = JSON.parse(fs.readFileSync(trackerPath, "utf-8"));
+      // Reset if older than 30 min
+      if (Date.now() - data.lastEdit > 30 * 60 * 1000) return null;
+      return data;
+    }
+  } catch {}
+  return null;
+}
+
+function saveEditTracker(tracker) {
+  const trackerPath = path.join(os.homedir(), ".agent-town", "edit-tracker.json");
+  try { fs.writeFileSync(trackerPath, JSON.stringify(tracker)); } catch {}
+}
+
+function getArea(relativePath) {
+  const parts = relativePath.split("/");
+  // Find the most meaningful area name
+  // e.g. "apps/builder/src/section-templates/hero.tsx" → "section-templates"
+  // e.g. "packages/relay/src/server.ts" → "relay"
+  const skip = new Set(["src", "app", "lib", "dist", "pages", "api"]);
+  for (const p of parts.slice(0, -1)) {
+    if (!skip.has(p) && !p.startsWith("[") && !p.startsWith(".")) return p;
+  }
+  return parts.length > 1 ? parts[parts.length - 2] : "root";
+}
+
+function generateSmartChat(relativePath, tracker) {
+  const area = getArea(relativePath);
+  const file = path.basename(relativePath);
   const ext = path.extname(file);
-  const messages = [
-    `tweaking ${file}`,
-    `fixing something in ${dir}/`,
-    `updating ${file}`,
-    `working on ${dir}/${file}`,
-    `improving ${dir}/`,
-  ];
-  if (file.includes("route") || file.includes("api")) messages.push(`API work on ${file}`, `adjusting ${dir}/ API`);
-  if (file.includes("test")) messages.push(`writing tests`, `testing ${dir}/`);
-  if (file.includes("config") || file.includes("setting")) messages.push(`updating config`);
-  if (ext === ".css" || ext === ".scss" || ext === ".tsx") messages.push(`styling ${dir}/`);
-  if (file.includes("schema") || file.includes("migration")) messages.push(`touching the schema — careful!`);
-  if (dir === "components" || dir === "ui") messages.push(`building UI in ${dir}/`);
-  return messages[Math.floor(Math.random() * messages.length)];
+
+  // First edit or new session
+  if (!tracker) {
+    return { chat: `starting work in ${area}/`, shouldSend: true, summary: `Working on ${area}` };
+  }
+
+  const prevArea = tracker.currentArea;
+  const editCount = (tracker.areaEditCount || 0) + 1;
+
+  // Same area — don't spam, only send at milestones
+  if (prevArea === area) {
+    // Send summary update at 5, 15, 30 edits
+    if (editCount === 5) {
+      return { chat: null, shouldSend: false, summary: `Deep in ${area} (${editCount} edits)` };
+    }
+    if (editCount === 15) {
+      return { chat: null, shouldSend: false, summary: `Major work on ${area} (${editCount} edits)` };
+    }
+    // No message for regular edits in the same area
+    return { chat: null, shouldSend: false, summary: null };
+  }
+
+  // Area changed! Send a message
+  const context = [];
+  if (["tsx", "jsx", "vue", "svelte"].includes(ext.slice(1))) context.push("UI");
+  else if (file.includes("route") || file.includes("api")) context.push("API");
+  else if (file.includes("migration") || file.includes("schema")) context.push("database");
+  else if (file.includes("test")) context.push("tests");
+  else if ([".css", ".scss"].includes(ext)) context.push("styling");
+  else if ([".json", ".yaml", ".toml", ".env"].includes(ext)) context.push("config");
+
+  const what = context.length > 0 ? context[0] + " in " : "";
+  const chat = prevArea
+    ? `moving to ${what}${area}/ (done with ${prevArea}/)`
+    : `starting ${what}${area}/`;
+
+  return { chat, shouldSend: true, summary: `Working on ${what}${area}` };
 }
 
 // --- Main ---
@@ -82,15 +132,12 @@ try {
   if (gitInfo) {
     relativePath = gitInfo.relativePath;
     repo = gitInfo.repo;
-    // Filter: if config.repos is set, only track allowed repos
     if (config.repos && config.repos.length > 0) {
-      // Match by full "org/repo" or just repo name
       const repoName = repo.includes("/") ? repo.split("/").pop() : repo;
       const allowed = config.repos.some(r => r === repo || r.endsWith("/" + repoName) || r === repoName);
-      if (!allowed) process.exit(0); // private repo, don't track
+      if (!allowed) process.exit(0);
     }
   } else {
-    // Fallback: not in git, use cwd-relative
     relativePath = path.relative(input.cwd || process.cwd(), filePath).replace(/\\/g, "/");
     repo = undefined;
   }
@@ -98,21 +145,53 @@ try {
   const hookCwd = input.cwd || process.cwd();
   const { userName, agentId } = getSessionIdentity(config, hookCwd);
   const relayHttp = config.relayUrl.replace("wss://", "https://").replace("ws://", "http://");
-  const chat = generateChat(filePath);
+
+  // Smart chat: track areas, only message on changes
+  const tracker = getEditTracker();
+  const area = getArea(relativePath);
+  const { chat, shouldSend, summary } = generateSmartChat(relativePath, tracker);
+
+  // Update tracker
+  saveEditTracker({
+    currentArea: area,
+    areaEditCount: tracker && tracker.currentArea === area ? (tracker.areaEditCount || 0) + 1 : 1,
+    lastEdit: Date.now(),
+    totalEdits: (tracker?.totalEdits || 0) + 1,
+  });
+
+  // Send file change (always)
+  const body = {
+    teamKey: config.teamKey,
+    agentId,
+    userName,
+    path: relativePath,
+    repo,
+    action: "edit",
+  };
+  if (shouldSend && chat) body.chat = chat;
 
   fetch(relayHttp + "/file-change", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      teamKey: config.teamKey,
-      agentId,
-      userName,
-      path: relativePath,
-      repo,
-      action: "edit",
-      chat,
-    }),
+    body: JSON.stringify(body),
   }).catch(() => {});
+
+  // Update work summary (separate call, non-blocking)
+  if (summary) {
+    fetch(relayHttp + "/file-change", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        teamKey: config.teamKey,
+        agentId,
+        userName,
+        path: "",
+        action: "edit",
+        chat: null,
+        workSummary: summary,
+      }),
+    }).catch(() => {});
+  }
 
   setTimeout(() => process.exit(0), 500);
 } catch {
