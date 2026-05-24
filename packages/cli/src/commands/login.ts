@@ -47,7 +47,7 @@ export async function login(): Promise<void> {
 
       const data = await res.json() as {
         completed?: boolean;
-        teams?: Array<{ id: string; name: string; team_key: string; relay_url: string }>;
+        teams?: Array<{ id: string; name: string; team_key: string; relay_url: string; repos?: string[] }>;
       };
 
       if (!data.completed || !data.teams) continue;
@@ -90,6 +90,7 @@ export async function login(): Promise<void> {
         userName: existing.userName || process.env.USER || "developer",
         agentId: existing.agentId || `agent-${randomBytes(6).toString("hex")}`,
         machineId: existing.machineId || `${homedir().split("/").pop()}-${Date.now().toString(36)}`,
+        repos: selectedTeam.repos || [],
       };
 
       mkdirSync(configDir, { recursive: true });
