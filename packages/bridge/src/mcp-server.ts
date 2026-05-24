@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
@@ -59,6 +59,23 @@ export class BridgeMcpServer {
       // Assign numbered userName (tmsn-1, tmsn-2, etc.) for multi-session visibility
       const numberedName = this.getNumberedUserName(config.userName, agentId);
       const sessionConfig = { ...config, agentId, userName: numberedName };
+
+      // Write active session file so hooks can find this bridge's identity
+      // Keyed by PID so each bridge has its own file
+      try {
+        const activeDir = join(homedir(), ".agent-town", "active");
+        mkdirSync(activeDir, { recursive: true });
+        writeFileSync(join(activeDir, process.pid + ".json"), JSON.stringify({
+          agentId, userName: numberedName, pid: process.pid, cwd: process.cwd(), startedAt: Date.now(),
+        }));
+        // Cleanup stale active files on startup
+        for (const f of readdirSync(activeDir)) {
+          try {
+            const s = JSON.parse(readFileSync(join(activeDir, f), "utf-8"));
+            if (Date.now() - s.startedAt > 24 * 60 * 60 * 1000) unlinkSync(join(activeDir, f));
+          } catch { /* skip */ }
+        }
+      } catch { /* non-critical */ }
       this.relay = new RelayClient(sessionConfig);
       this.relay.on("conflict", (msg: ServerConflictMessage) => {
         this.pendingConflicts.push(msg);

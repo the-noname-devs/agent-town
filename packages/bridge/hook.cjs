@@ -4,47 +4,27 @@ const path = require("path");
 const os = require("os");
 
 // --- Session identity ---
-// Each Claude Code session gets a unique number (tmsn-1, tmsn-2, etc.)
-// Stored in ~/.agent-town/sessions/ keyed by session_id
-function getSessionIdentity(config, sessionId) {
-  if (!sessionId) return { userName: config.userName, agentId: config.agentId };
-
-  const sessDir = path.join(os.homedir(), ".agent-town", "sessions");
-  try { fs.mkdirSync(sessDir, { recursive: true }); } catch {}
-
-  const sessFile = path.join(sessDir, sessionId + ".json");
-
-  // Check if this session already has an identity
-  if (fs.existsSync(sessFile)) {
-    try {
-      const sess = JSON.parse(fs.readFileSync(sessFile, "utf-8"));
-      return { userName: sess.userName, agentId: sess.agentId };
-    } catch {}
-  }
-
-  // Assign a new number — find the highest existing number for this user
-  let maxNum = 0;
+// Reads the active bridge's identity (written by MCP bridge on startup)
+// Falls back to config if no active bridge found
+function getSessionIdentity(config, cwd) {
   try {
-    const files = fs.readdirSync(sessDir);
-    for (const f of files) {
+    const activeDir = path.join(os.homedir(), ".agent-town", "active");
+    if (!fs.existsSync(activeDir)) return { userName: config.userName, agentId: config.agentId };
+
+    // Find active bridge matching our cwd, or most recent one
+    let best = null;
+    for (const f of fs.readdirSync(activeDir)) {
       if (!f.endsWith(".json")) continue;
       try {
-        const s = JSON.parse(fs.readFileSync(path.join(sessDir, f), "utf-8"));
-        if (s.baseUser === config.userName && typeof s.num === "number") {
-          maxNum = Math.max(maxNum, s.num);
-        }
+        const s = JSON.parse(fs.readFileSync(path.join(activeDir, f), "utf-8"));
+        // Prefer cwd match, else take most recent
+        if (s.cwd === cwd) return { userName: s.userName, agentId: s.agentId };
+        if (!best || s.startedAt > best.startedAt) best = s;
       } catch {}
     }
+    if (best) return { userName: best.userName, agentId: best.agentId };
   } catch {}
-
-  const num = maxNum + 1;
-  const userName = config.userName + "-" + num;
-  const agentId = "agent-sess-" + sessionId.slice(0, 12);
-  const sessData = { userName, agentId, baseUser: config.userName, num, createdAt: Date.now() };
-
-  try { fs.writeFileSync(sessFile, JSON.stringify(sessData)); } catch {}
-
-  return { userName, agentId };
+  return { userName: config.userName, agentId: config.agentId };
 }
 
 // --- Auto-chat messages ---
@@ -93,17 +73,8 @@ try {
   if (!fs.existsSync(configPath)) process.exit(0);
 
   const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-  const { userName, agentId } = getSessionIdentity(config, input.session_id);
-
-  // Cleanup old sessions (>24h) — non-blocking
-  try {
-    const sessDir = path.join(os.homedir(), ".agent-town", "sessions");
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    for (const f of fs.readdirSync(sessDir)) {
-      const fp = path.join(sessDir, f);
-      try { if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp); } catch {}
-    }
-  } catch {}
+  const hookCwd = input.cwd || process.cwd();
+  const { userName, agentId } = getSessionIdentity(config, hookCwd);
 
   const relayHttp = config.relayUrl.replace("wss://", "https://").replace("ws://", "http://");
   const relativePath = path.relative(input.cwd || process.cwd(), filePath);

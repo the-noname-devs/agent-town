@@ -24,17 +24,22 @@ try {
     process.exit(0);
   }
 
-  // Get session-specific identity
+  // Get session-specific identity from active bridge file
   let agentId = config.agentId || "";
-  if (input.session_id) {
-    const sessFile = path.join(os.homedir(), ".agent-town", "sessions", input.session_id + ".json");
-    try {
-      if (fs.existsSync(sessFile)) {
-        const sess = JSON.parse(fs.readFileSync(sessFile, "utf-8"));
-        agentId = sess.agentId || agentId;
+  try {
+    const activeDir = path.join(os.homedir(), ".agent-town", "active");
+    if (fs.existsSync(activeDir)) {
+      let best = null;
+      for (const f of fs.readdirSync(activeDir)) {
+        if (!f.endsWith(".json")) continue;
+        try {
+          const s = JSON.parse(fs.readFileSync(path.join(activeDir, f), "utf-8"));
+          if (!best || s.startedAt > best.startedAt) best = s;
+        } catch {}
       }
-    } catch {}
-  }
+      if (best) agentId = best.agentId;
+    }
+  } catch {}
 
   const relayHttp = config.relayUrl
     .replace("wss://", "https://")

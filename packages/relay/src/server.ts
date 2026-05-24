@@ -176,18 +176,21 @@ export class RelayServer {
           return;
         }
 
-        // Check file lock — allow if same agent OR same user (multi-session)
+        // Check file lock — allow if same agent OR same base user (tmsn matches tmsn-1, tmsn-2)
         const lock = this.locks.get(path);
-        const isSelf = lock && (lock.agentId === agentId || (userName && lock.userName === userName));
+        const baseUser = userName.replace(/-\d+$/, "");
+        const lockBaseUser = lock ? lock.userName.replace(/-\d+$/, "") : "";
+        const isSelf = lock && (lock.agentId === agentId || (baseUser && baseUser === lockBaseUser));
         if (lock && !isSelf && lock.status === LockStatus.Active) {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ allowed: false, reason: `${lock.userName} is editing this file`, lockedBy: lock.userName }));
           return;
         }
 
-        // Check zone violations — allow if same agent OR same user
+        // Check zone violations — allow if same agent OR same base user
         for (const [, zone] of this.zones) {
-          const isZoneSelf = zone.agentId === agentId || (userName && zone.userName === userName);
+          const zoneBaseUser = zone.userName.replace(/-\d+$/, "");
+          const isZoneSelf = zone.agentId === agentId || (baseUser && baseUser === zoneBaseUser);
           if (zone.teamKey === teamKey && !isZoneSelf && this.pathMatchesPattern(path, zone.pattern)) {
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ allowed: false, reason: `File is inside protected zone '${zone.pattern}' by ${zone.userName}${zone.reason ? ` (${zone.reason})` : ""}`, lockedBy: zone.userName, zone: zone.pattern }));

@@ -31,19 +31,25 @@ try {
     process.exit(0);
   }
 
-  // Get session-specific identity
+  // Get session-specific identity from active bridge file
   let userName = config.userName;
   let agentId = config.agentId || "";
-  if (input.session_id) {
-    const sessFile = path.join(os.homedir(), ".agent-town", "sessions", input.session_id + ".json");
-    try {
-      if (fs.existsSync(sessFile)) {
-        const sess = JSON.parse(fs.readFileSync(sessFile, "utf-8"));
-        userName = sess.userName || userName;
-        agentId = sess.agentId || agentId;
+  try {
+    const activeDir = path.join(os.homedir(), ".agent-town", "active");
+    if (fs.existsSync(activeDir)) {
+      const hookCwd = cwd;
+      let best = null;
+      for (const f of fs.readdirSync(activeDir)) {
+        if (!f.endsWith(".json")) continue;
+        try {
+          const s = JSON.parse(fs.readFileSync(path.join(activeDir, f), "utf-8"));
+          if (s.cwd === hookCwd) { userName = s.userName; agentId = s.agentId; best = null; break; }
+          if (!best || s.startedAt > best.startedAt) best = s;
+        } catch {}
       }
-    } catch {}
-  }
+      if (best) { userName = best.userName; agentId = best.agentId; }
+    }
+  } catch {}
 
   // Make path relative to cwd
   let relativePath = filePath;
