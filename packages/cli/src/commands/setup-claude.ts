@@ -43,23 +43,63 @@ export async function setupClaude(): Promise<void> {
 
   const hooks = (settings.hooks as Record<string, unknown[]>) ?? {};
 
-  // Remove old hooks, add new MCP-based hook
-  hooks.PostToolUse = [
-    ...(hooks.PostToolUse ?? []).filter(
-      (h: unknown) => {
-        const hook = h as Record<string, unknown>;
-        return !hook.__agentBridge && !hook.__agentTown;
-      }
-    ),
+  // Helper: filter out old agent-town hooks
+  const filterOld = (arr: unknown[]) => (arr ?? []).filter((h: unknown) => {
+    const hook = h as Record<string, unknown>;
+    return !hook.__agentBridge && !hook.__agentTown;
+  });
+
+  // Resolve hook script paths (use installed package or local dev)
+  const bridgePkg = join(dirname(require.resolve("@agent-town/bridge/package.json")), "..");
+  let hookDir: string;
+  try {
+    hookDir = dirname(require.resolve("@agent-town/bridge/package.json"));
+  } catch {
+    // Fallback for local development
+    hookDir = join(homedir(), ".agent-town");
+  }
+
+  // PreToolUse — block edits on locked files / protected zones
+  hooks.PreToolUse = [
+    ...filterOld(hooks.PreToolUse as unknown[]),
     {
       __agentTown: true,
       matcher: "Edit|Write",
       hooks: [
         {
-          type: "mcp_tool",
-          server: "agent-town",
-          tool: "claim_file",
-          input: { path: "${tool_input.file_path}" },
+          type: "command",
+          command: `node ${join(hookDir, "pre-edit-check.cjs")}`,
+          timeout: 5000,
+        },
+      ],
+    },
+  ];
+
+  // PostToolUse — claim files after edit (existing behavior)
+  hooks.PostToolUse = [
+    ...filterOld(hooks.PostToolUse as unknown[]),
+    {
+      __agentTown: true,
+      matcher: "Edit|Write",
+      hooks: [
+        {
+          type: "command",
+          command: `node ${join(hookDir, "hook.cjs")}`,
+        },
+      ],
+    },
+  ];
+
+  // UserPromptSubmit — inject team context before Claude processes a message
+  hooks.UserPromptSubmit = [
+    ...filterOld(hooks.UserPromptSubmit as unknown[]),
+    {
+      __agentTown: true,
+      hooks: [
+        {
+          type: "command",
+          command: `node ${join(hookDir, "team-context-hook.cjs")}`,
+          timeout: 5000,
         },
       ],
     },
@@ -80,6 +120,7 @@ export async function setupClaude(): Promise<void> {
     "mcp__agent-town__get_activity",
     "mcp__agent-town__get_conflicts",
     "mcp__agent-town__get_messages",
+    "mcp__agent-town__set_work_summary",
   ];
   for (const tool of bridgeTools) {
     if (!allowedTools.includes(tool)) {
@@ -92,7 +133,9 @@ export async function setupClaude(): Promise<void> {
   console.log(`Allowed tools added to ${settingsPath}`);
 
   console.log(`\nSetup complete! Claude Code will now:`);
-  console.log(`   - Auto-connect to the relay when starting`);
-  console.log(`   - Have tools to check team status and manage file locks`);
+  console.log(`   - Auto-check for conflicts before editing files (PreToolUse)`);
+  console.log(`   - Auto-inject team status into every conversation (UserPromptSubmit)`);
+  console.log(`   - Auto-claim files after editing (PostToolUse)`);
+  console.log(`   - Have 11 tools for team coordination`);
   console.log(`\nRestart Claude Code to activate.`);
 }

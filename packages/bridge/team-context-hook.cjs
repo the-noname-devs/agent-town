@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+/**
+ * UserPromptSubmit Hook — injects team status as context before Claude processes a message.
+ * Claude automatically knows who's working on what without needing to ask.
+ * Fails silently on any error (no context injected, no block).
+ */
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+
+try {
+  // Read stdin (hook input)
+  fs.readFileSync("/dev/stdin", "utf-8");
+
+  const configPath = path.join(os.homedir(), ".agent-town", "config.json");
+  if (!fs.existsSync(configPath)) {
+    console.log(JSON.stringify({}));
+    process.exit(0);
+  }
+
+  const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  if (!config.relayUrl || !config.teamKey) {
+    console.log(JSON.stringify({}));
+    process.exit(0);
+  }
+
+  const relayHttp = config.relayUrl
+    .replace("wss://", "https://")
+    .replace("ws://", "http://");
+
+  const url = `${relayHttp}/team-context?teamKey=${encodeURIComponent(config.teamKey)}&agentId=${encodeURIComponent(config.agentId || "")}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+
+  fetch(url, { signal: controller.signal })
+    .then((res) => res.json())
+    .then((data) => {
+      clearTimeout(timeout);
+
+      const parts = [];
+
+      // Teammates
+      if (data.agents && data.agents.length > 0) {
+        for (const agent of data.agents) {
+          let line = `${agent.name} (${agent.status})`;
+          if (agent.branch) line += ` on ${agent.branch}`;
+          if (agent.activeFiles?.length > 0) {
+            const files = agent.activeFiles.map((f) => f.split(/[\\/]/).slice(-2).join("/"));
+            line += `, editing: ${files.join(", ")}`;
+          }
+          if (agent.workSummary) line += ` — "${agent.workSummary}"`;
+          parts.push(line);
+        }
+      }
+
+      // Protected zones
+      if (data.zones && data.zones.length > 0) {
+        for (const zone of data.zones) {
+          parts.push(`⚠️ Protected zone: ${zone.pattern} by ${zone.owner}${zone.reason ? ` (${zone.reason})` : ""}`);
+        }
+      }
+
+      // Recent activity
+      if (data.recentActivity && data.recentActivity !== "no recent activity") {
+        parts.push(`Recent: ${data.recentActivity}`);
+      }
+
+      if (parts.length === 0) {
+        // No teammates online — no context needed
+        console.log(JSON.stringify({}));
+        return;
+      }
+
+      const context = `[Agent Town] Teammates: ${parts.join(" | ")}`;
+
+      console.log(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: context,
+        },
+      }));
+    })
+    .catch(() => {
+      clearTimeout(timeout);
+      console.log(JSON.stringify({}));
+    });
+} catch {
+  console.log(JSON.stringify({}));
+}

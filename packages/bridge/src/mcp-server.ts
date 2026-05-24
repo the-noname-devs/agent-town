@@ -388,6 +388,20 @@ export class BridgeMcpServer {
         };
       }
     );
+
+    // set_work_summary — broadcast what you're working on
+    this.mcp.tool(
+      "set_work_summary",
+      "Set a short description of what you're currently working on — visible to all teammates",
+      { summary: z.string().describe("Short description, e.g. 'Refactoring auth flow'") },
+      async ({ summary }) => {
+        if (!this.relay) {
+          return { content: [{ type: "text" as const, text: "Not connected to relay." }] };
+        }
+        this.relay.sendSummary(summary);
+        return { content: [{ type: "text" as const, text: `Work summary updated: "${summary}"` }] };
+      }
+    );
   }
 
   private pathMatchesPattern(path: string, pattern: string): boolean {

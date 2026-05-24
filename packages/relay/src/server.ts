@@ -162,6 +162,84 @@ export class RelayServer {
         });
         return;
       }
+      // GET /check-conflict — PreToolUse hook checks if a file is safe to edit
+      if (req.url?.startsWith("/check-conflict") && req.method === "GET") {
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const teamKey = url.searchParams.get("teamKey") || "";
+        const path = url.searchParams.get("path") || "";
+        const agentId = url.searchParams.get("agentId") || "";
+
+        if (!teamKey || !path) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ allowed: true }));
+          return;
+        }
+
+        // Check file lock
+        const lock = this.locks.get(path);
+        if (lock && lock.agentId !== agentId && lock.status === LockStatus.Active) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ allowed: false, reason: `${lock.userName} is editing this file`, lockedBy: lock.userName }));
+          return;
+        }
+
+        // Check zone violations
+        for (const [, zone] of this.zones) {
+          if (zone.teamKey === teamKey && zone.agentId !== agentId && this.pathMatchesPattern(path, zone.pattern)) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ allowed: false, reason: `File is inside protected zone '${zone.pattern}' by ${zone.userName}${zone.reason ? ` (${zone.reason})` : ""}`, lockedBy: zone.userName, zone: zone.pattern }));
+            return;
+          }
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ allowed: true }));
+        return;
+      }
+
+      // GET /team-context — UserPromptSubmit hook gets team status for context injection
+      if (req.url?.startsWith("/team-context") && req.method === "GET") {
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const teamKey = url.searchParams.get("teamKey") || "";
+        const agentId = url.searchParams.get("agentId") || "";
+
+        const agents: { name: string; status: string; branch?: string; activeFiles: string[]; workSummary?: string }[] = [];
+        for (const [, agent] of this.agents) {
+          if (agent.teamKey === teamKey && agent.info.agentId !== agentId && agent.info.machineId !== "observer") {
+            agents.push({
+              name: agent.info.userName,
+              status: agent.info.status,
+              branch: agent.info.branch,
+              activeFiles: agent.info.activeFiles,
+              workSummary: (agent.info as any).workSummary,
+            });
+          }
+        }
+
+        const zones: { pattern: string; owner: string; reason?: string }[] = [];
+        for (const [, zone] of this.zones) {
+          if (zone.teamKey === teamKey && zone.agentId !== agentId) {
+            zones.push({ pattern: zone.pattern, owner: zone.userName, reason: zone.reason });
+          }
+        }
+
+        // Recent activity summary (last 10 min)
+        const tenMinAgo = Date.now() - 10 * 60 * 1000;
+        const recentActs = (this.activities.get(teamKey) ?? []).filter(a => a.timestamp > tenMinAgo && a.agentId !== agentId);
+        const actSummary: Record<string, { count: number; folders: Set<string> }> = {};
+        for (const act of recentActs) {
+          if (!actSummary[act.userName]) actSummary[act.userName] = { count: 0, folders: new Set() };
+          actSummary[act.userName].count++;
+          const folder = act.path.split(/[\\/]/).slice(-2, -1)[0] || "root";
+          actSummary[act.userName].folders.add(folder);
+        }
+        const recentActivity = Object.entries(actSummary).map(([name, s]) => `${name}: ${s.count} edits in ${[...s.folders].join(", ")}`).join("; ");
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ agents, zones, recentActivity: recentActivity || "no recent activity" }));
+        return;
+      }
+
       res.writeHead(404);
       res.end("Not found");
     });
@@ -238,6 +316,15 @@ export class RelayServer {
           break;
         case MessageType.ZoneRelease:
           this.handleZoneRelease(msg.agentId, msg.pattern);
+          break;
+        case MessageType.UpdateSummary:
+          if (agentId) {
+            const summaryAgent = this.agents.get(agentId);
+            if (summaryAgent) {
+              (summaryAgent.info as any).workSummary = msg.summary;
+              this.broadcastState(summaryAgent.teamKey);
+            }
+          }
           break;
       }
     });

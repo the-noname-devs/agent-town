@@ -10,6 +10,7 @@ export enum MessageType {
   SendChat = "send_chat",
   ZoneClaim = "zone_claim",
   ZoneRelease = "zone_release",
+  UpdateSummary = "update_summary",
 
   // Server -> Client
   State = "state",
@@ -41,6 +42,7 @@ export interface AgentInfo {
   lastHeartbeat: number;
   activeFiles: string[];
   branch?: string;
+  workSummary?: string;
 }
 
 export interface FileLock {
@@ -136,6 +138,11 @@ export interface ZoneReleaseMessage {
   pattern: string;
 }
 
+export interface UpdateSummaryMessage {
+  type: MessageType.UpdateSummary;
+  summary: string;
+}
+
 // --- Server Messages ---
 
 export interface ServerStateMessage {
@@ -179,7 +186,8 @@ export type ClientMessage =
   | FileChangeMessage
   | SendChatMessage
   | ZoneClaimMessage
-  | ZoneReleaseMessage;
+  | ZoneReleaseMessage
+  | UpdateSummaryMessage;
 
 export type ServerMessage =
   | ServerStateMessage

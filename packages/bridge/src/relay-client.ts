@@ -138,6 +138,13 @@ export class RelayClient extends EventEmitter {
     });
   }
 
+  sendSummary(summary: string): void {
+    this.send({
+      type: MessageType.UpdateSummary,
+      summary,
+    } as any);
+  }
+
   claimZone(pattern: string, reason?: string): void {
     this.send({
       type: MessageType.ZoneClaim,
