@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
@@ -55,7 +55,10 @@ export class BridgeMcpServer {
       const config = loadConfig();
       // Generate a unique agentId per MCP session so multiple Claude Code
       // windows don't kick each other off the relay
-      const sessionConfig = { ...config, agentId: generateAgentId() };
+      const agentId = generateAgentId();
+      // Assign numbered userName (tmsn-1, tmsn-2, etc.) for multi-session visibility
+      const numberedName = this.getNumberedUserName(config.userName, agentId);
+      const sessionConfig = { ...config, agentId, userName: numberedName };
       this.relay = new RelayClient(sessionConfig);
       this.relay.on("conflict", (msg: ServerConflictMessage) => {
         this.pendingConflicts.push(msg);
@@ -402,6 +405,44 @@ export class BridgeMcpServer {
         return { content: [{ type: "text" as const, text: `Work summary updated: "${summary}"` }] };
       }
     );
+  }
+
+  private getNumberedUserName(baseUser: string, agentId: string): string {
+    try {
+      const sessDir = join(homedir(), ".agent-town", "sessions");
+      mkdirSync(sessDir, { recursive: true });
+
+      // Check if this agentId already has a session
+      const files = readdirSync(sessDir);
+      for (const f of files) {
+        try {
+          const s = JSON.parse(readFileSync(join(sessDir, f), "utf-8"));
+          if (s.agentId === agentId) return s.userName;
+        } catch { /* skip */ }
+      }
+
+      // Find highest existing number for this base user
+      let maxNum = 0;
+      for (const f of files) {
+        try {
+          const s = JSON.parse(readFileSync(join(sessDir, f), "utf-8"));
+          if (s.baseUser === baseUser && typeof s.num === "number") {
+            maxNum = Math.max(maxNum, s.num);
+          }
+        } catch { /* skip */ }
+      }
+
+      const num = maxNum + 1;
+      const userName = baseUser + "-" + num;
+
+      // Write session file keyed by agentId
+      const sessFile = join(sessDir, agentId + ".json");
+      writeFileSync(sessFile, JSON.stringify({ userName, agentId, baseUser, num, createdAt: Date.now() }));
+
+      return userName;
+    } catch {
+      return baseUser;
+    }
   }
 
   private pathMatchesPattern(path: string, pattern: string): boolean {
