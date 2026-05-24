@@ -49,61 +49,98 @@ export async function setupClaude(): Promise<void> {
     return !hook.__agentBridge && !hook.__agentTown;
   });
 
-  // Resolve hook script paths (use installed package or local dev)
-  const bridgePkg = join(dirname(require.resolve("@agent-town/bridge/package.json")), "..");
-  let hookDir: string;
+  // Find hook scripts from @agent-town/bridge package
+  let hookDir = "";
   try {
-    hookDir = dirname(require.resolve("@agent-town/bridge/package.json"));
+    const bridgePkgUrl = import.meta.resolve("@agent-town/bridge/package.json");
+    hookDir = dirname(new URL(bridgePkgUrl).pathname);
   } catch {
-    // Fallback for local development
-    hookDir = join(homedir(), ".agent-town");
+    // Fallback: search common locations
+    const searchPaths = [
+      join(dirname(new URL(import.meta.url).pathname), "..", "..", "..", "bridge"),
+      join(dirname(new URL(import.meta.url).pathname), "..", "..", "bridge"),
+    ];
+    for (const p of searchPaths) {
+      if (existsSync(join(p, "hook.cjs"))) { hookDir = p; break; }
+    }
+  }
+  if (!hookDir || !existsSync(join(hookDir, "hook.cjs"))) {
+    console.log("⚠ Could not find hook scripts. Hooks will use MCP tools only.");
+    hookDir = "";
   }
 
-  // PreToolUse — block edits on locked files / protected zones
-  hooks.PreToolUse = [
-    ...filterOld(hooks.PreToolUse as unknown[]),
-    {
-      __agentTown: true,
-      matcher: "Edit|Write",
-      hooks: [
-        {
-          type: "command",
-          command: `node ${join(hookDir, "pre-edit-check.cjs")}`,
-          timeout: 5000,
-        },
-      ],
-    },
-  ];
+  const preEditCmd = hookDir ? `node ${join(hookDir, "pre-edit-check.cjs")}` : "";
+  const postEditCmd = hookDir ? `node ${join(hookDir, "hook.cjs")}` : "";
+  const teamContextCmd = hookDir ? `node ${join(hookDir, "team-context-hook.cjs")}` : "";
 
-  // PostToolUse — claim files after edit (existing behavior)
-  hooks.PostToolUse = [
-    ...filterOld(hooks.PostToolUse as unknown[]),
-    {
-      __agentTown: true,
-      matcher: "Edit|Write",
-      hooks: [
-        {
-          type: "command",
-          command: `node ${join(hookDir, "hook.cjs")}`,
-        },
-      ],
-    },
-  ];
+  if (preEditCmd) {
+    // PreToolUse — block edits on locked files / protected zones
+    hooks.PreToolUse = [
+      ...filterOld(hooks.PreToolUse as unknown[]),
+      {
+        __agentTown: true,
+        matcher: "Edit|Write",
+        hooks: [
+          {
+            type: "command",
+            command: preEditCmd,
+            timeout: 5000,
+          },
+        ],
+      },
+    ];
+  }
 
-  // UserPromptSubmit — inject team context before Claude processes a message
-  hooks.UserPromptSubmit = [
-    ...filterOld(hooks.UserPromptSubmit as unknown[]),
-    {
-      __agentTown: true,
-      hooks: [
-        {
-          type: "command",
-          command: `node ${join(hookDir, "team-context-hook.cjs")}`,
-          timeout: 5000,
-        },
-      ],
-    },
-  ];
+  if (postEditCmd) {
+    // PostToolUse — claim files after edit
+    hooks.PostToolUse = [
+      ...filterOld(hooks.PostToolUse as unknown[]),
+      {
+        __agentTown: true,
+        matcher: "Edit|Write",
+        hooks: [
+          {
+            type: "command",
+            command: postEditCmd,
+          },
+        ],
+      },
+    ];
+  } else {
+    // Fallback: MCP-based hook (slower but works without file paths)
+    hooks.PostToolUse = [
+      ...filterOld(hooks.PostToolUse as unknown[]),
+      {
+        __agentTown: true,
+        matcher: "Edit|Write",
+        hooks: [
+          {
+            type: "mcp_tool",
+            server: "agent-town",
+            tool: "claim_file",
+            input: { path: "${tool_input.file_path}" },
+          },
+        ],
+      },
+    ];
+  }
+
+  if (teamContextCmd) {
+    // UserPromptSubmit — inject team context before Claude processes a message
+    hooks.UserPromptSubmit = [
+      ...filterOld(hooks.UserPromptSubmit as unknown[]),
+      {
+        __agentTown: true,
+        hooks: [
+          {
+            type: "command",
+            command: teamContextCmd,
+            timeout: 5000,
+          },
+        ],
+      },
+    ];
+  }
 
   settings.hooks = hooks;
 
