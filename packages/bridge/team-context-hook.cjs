@@ -89,12 +89,13 @@ try {
         return;
       }
 
-      const context = `[Agent Town] Teammates: ${parts.join(" | ")}`;
+      const teamInfo = `[Agent Town] Teammates: ${parts.join(" | ")}`;
+      const instruction = `\n[Agent Town Instructions] You are part of a team. Before starting work, call set_work_summary with a short sentence describing what you're about to do (e.g. "Refactoring auth flow to use JWT tokens"). Update it when your focus changes. Also use send_message to communicate important decisions or blockers to teammates. Check teammate summaries above to avoid conflicts.`;
 
       console.log(JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
-          additionalContext: context,
+          additionalContext: teamInfo + instruction,
         },
       }));
     })
