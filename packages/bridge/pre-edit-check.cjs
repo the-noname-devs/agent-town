@@ -31,6 +31,20 @@ try {
     process.exit(0);
   }
 
+  // Get session-specific identity
+  let userName = config.userName;
+  let agentId = config.agentId || "";
+  if (input.session_id) {
+    const sessFile = path.join(os.homedir(), ".agent-town", "sessions", input.session_id + ".json");
+    try {
+      if (fs.existsSync(sessFile)) {
+        const sess = JSON.parse(fs.readFileSync(sessFile, "utf-8"));
+        userName = sess.userName || userName;
+        agentId = sess.agentId || agentId;
+      }
+    } catch {}
+  }
+
   // Make path relative to cwd
   let relativePath = filePath;
   if (path.isAbsolute(filePath) && cwd) {
@@ -41,7 +55,7 @@ try {
     .replace("wss://", "https://")
     .replace("ws://", "http://");
 
-  const url = `${relayHttp}/check-conflict?teamKey=${encodeURIComponent(config.teamKey)}&path=${encodeURIComponent(relativePath)}&agentId=${encodeURIComponent(config.agentId || "")}`;
+  const url = `${relayHttp}/check-conflict?teamKey=${encodeURIComponent(config.teamKey)}&path=${encodeURIComponent(relativePath)}&agentId=${encodeURIComponent(agentId)}&userName=${encodeURIComponent(userName)}`;
 
   // Use AbortController for timeout
   const controller = new AbortController();

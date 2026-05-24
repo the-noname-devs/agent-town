@@ -10,7 +10,7 @@ const os = require("os");
 
 try {
   // Read stdin (hook input)
-  fs.readFileSync("/dev/stdin", "utf-8");
+  const input = JSON.parse(fs.readFileSync("/dev/stdin", "utf-8"));
 
   const configPath = path.join(os.homedir(), ".agent-town", "config.json");
   if (!fs.existsSync(configPath)) {
@@ -24,11 +24,23 @@ try {
     process.exit(0);
   }
 
+  // Get session-specific identity
+  let agentId = config.agentId || "";
+  if (input.session_id) {
+    const sessFile = path.join(os.homedir(), ".agent-town", "sessions", input.session_id + ".json");
+    try {
+      if (fs.existsSync(sessFile)) {
+        const sess = JSON.parse(fs.readFileSync(sessFile, "utf-8"));
+        agentId = sess.agentId || agentId;
+      }
+    } catch {}
+  }
+
   const relayHttp = config.relayUrl
     .replace("wss://", "https://")
     .replace("ws://", "http://");
 
-  const url = `${relayHttp}/team-context?teamKey=${encodeURIComponent(config.teamKey)}&agentId=${encodeURIComponent(config.agentId || "")}`;
+  const url = `${relayHttp}/team-context?teamKey=${encodeURIComponent(config.teamKey)}&agentId=${encodeURIComponent(agentId)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3000);
