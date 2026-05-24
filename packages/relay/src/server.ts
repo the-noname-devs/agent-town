@@ -119,17 +119,25 @@ export class RelayServer {
         req.on("data", (c) => { body += c; });
         req.on("end", () => {
           try {
-            const { teamKey, agentId, userName, path, action, chat } = JSON.parse(body);
+            const { teamKey, agentId, userName, path, action, chat, repo } = JSON.parse(body);
             if (teamKey && path) {
-              // Find agent by ID first, then fallback to matching by teamKey + userName
+              // Find agent by ID first, then fallback to matching by teamKey + userName (or base userName)
               let matchedAgentId = agentId;
+              const baseUser = userName ? userName.replace(/-\d+$/, "") : "";
               if (!this.agents.has(agentId)) {
                 for (const [id, agent] of this.agents) {
-                  if (agent.teamKey === teamKey && agent.info.userName === userName) {
+                  if (agent.teamKey !== teamKey) continue;
+                  const agentBase = agent.info.userName.replace(/-\d+$/, "");
+                  if (agent.info.userName === userName || agentBase === baseUser) {
                     matchedAgentId = id;
                     break;
                   }
                 }
+              }
+
+              // Update agent's repo if provided
+              if (repo && this.agents.has(matchedAgentId)) {
+                (this.agents.get(matchedAgentId)!.info as any).repo = repo;
               }
 
               // Report the file change if we found the agent
@@ -144,6 +152,7 @@ export class RelayServer {
                 path,
                 action: action || "edit",
                 timestamp: Date.now(),
+                repo,
               });
 
               // Send auto-chat if provided

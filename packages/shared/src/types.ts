@@ -43,6 +43,7 @@ export interface AgentInfo {
   activeFiles: string[];
   branch?: string;
   workSummary?: string;
+  repo?: string;
 }
 
 export interface FileLock {
@@ -66,6 +67,7 @@ export interface ActivityEntry {
   path: string;
   action: "edit" | "write" | "delete" | "claim" | "release";
   timestamp: number;
+  repo?: string;
 }
 
 export interface ProtectedZone {
@@ -209,4 +211,5 @@ export interface BridgeConfig {
   watchPaths?: string[];
   heartbeatInterval?: number;
   lockTtl?: number;
+  repos?: string[];
 }

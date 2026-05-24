@@ -7,6 +7,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { execSync } = require("child_process");
 
 try {
   const input = JSON.parse(fs.readFileSync("/dev/stdin", "utf-8"));
@@ -51,10 +52,16 @@ try {
     }
   } catch {}
 
-  // Make path relative to cwd
+  // Make path relative to git root (or cwd fallback)
   let relativePath = filePath;
-  if (path.isAbsolute(filePath) && cwd) {
-    relativePath = path.relative(cwd, filePath);
+  try {
+    const dir = path.dirname(filePath);
+    const root = execSync("git rev-parse --show-toplevel", { cwd: dir, encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] }).trim();
+    relativePath = path.relative(root, filePath).replace(/\\/g, "/");
+  } catch {
+    if (path.isAbsolute(filePath) && cwd) {
+      relativePath = path.relative(cwd, filePath).replace(/\\/g, "/");
+    }
   }
 
   const relayHttp = config.relayUrl
