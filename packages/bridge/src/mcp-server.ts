@@ -126,15 +126,17 @@ export class BridgeMcpServer {
 
         const state: TeamState = this.relay.getState();
 
-        if (state.agents.length === 0) {
+        const realAgentCount = state.agents.filter(a => a.machineId !== "observer" && !a.userName.startsWith("Dashboard")).length;
+        if (realAgentCount === 0) {
           return {
             content: [{ type: "text", text: "No team members currently online." }],
           };
         }
 
         const lines: string[] = ["## Team Status\n"];
+        const realAgents = state.agents.filter(a => a.machineId !== "observer" && !a.userName.startsWith("Dashboard"));
 
-        for (const agent of state.agents) {
+        for (const agent of realAgents) {
           const statusIcon = agent.status === "online" ? "🟢" : agent.status === "idle" ? "🟡" : "⚫";
           const branchInfo = agent.branch ? ` on \`${agent.branch}\`` : "";
           lines.push(`${statusIcon} **${agent.userName}** (${agent.status})${branchInfo}`);
