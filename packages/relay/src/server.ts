@@ -119,9 +119,11 @@ export class RelayServer {
         req.on("data", (c) => { body += c; });
         req.on("end", () => {
           try {
-            const { teamKey, agentId, userName, path, action, chat, repo, workSummary } = JSON.parse(body);
-            if (teamKey && path) {
-              // Find agent by ID first, then fallback to matching by teamKey + userName (or base userName)
+            const { teamKey, agentId, userName, path, action, chat, repo, workSummary, linesAdded, linesRemoved } = JSON.parse(body);
+            if (teamKey) {
+              // Resolve agent for this team. We always try to match because
+              // path-less calls (workSummary-only updates) still need to land
+              // on the right agent.
               let matchedAgentId = agentId;
               const baseUser = userName ? userName.replace(/-\d+$/, "") : "";
               if (!this.agents.has(agentId)) {
@@ -137,32 +139,43 @@ export class RelayServer {
 
               // Update agent's repo if provided
               if (repo && this.agents.has(matchedAgentId)) {
-                (this.agents.get(matchedAgentId)!.info as any).repo = repo;
+                this.agents.get(matchedAgentId)!.info.repo = repo;
               }
 
-              // Report the file change if we found the agent
-              if (this.agents.has(matchedAgentId)) {
-                this.handleFileChange(matchedAgentId, path, action || "edit");
+              // Path-bound updates: file change, activity log, auto-chat.
+              if (path) {
+                const deltas = {
+                  linesAdded: typeof linesAdded === "number" ? linesAdded : undefined,
+                  linesRemoved: typeof linesRemoved === "number" ? linesRemoved : undefined,
+                  repo: typeof repo === "string" ? repo : undefined,
+                };
+                if (this.agents.has(matchedAgentId)) {
+                  // handleFileChange logs the activity (incl. deltas) and
+                  // auto-claims the file, so we DON'T add a separate activity
+                  // here — that's what caused duplicate feed entries.
+                  this.handleFileChange(matchedAgentId, path, action || "edit", deltas);
+                } else {
+                  // No matching agent (rare: webhook from disconnected client).
+                  // Log the activity directly so the feed still reflects it.
+                  this.addActivity(teamKey, {
+                    agentId: matchedAgentId || "unknown",
+                    userName: userName || "unknown",
+                    path,
+                    action: action || "edit",
+                    timestamp: Date.now(),
+                    ...deltas,
+                  });
+                }
+
+                if (chat && this.agents.has(matchedAgentId)) {
+                  this.handleChat(matchedAgentId, chat);
+                }
               }
 
-              // Add to activity log
-              this.addActivity(teamKey, {
-                agentId: matchedAgentId || "unknown",
-                userName: userName || "unknown",
-                path,
-                action: action || "edit",
-                timestamp: Date.now(),
-                repo,
-              });
-
-              // Send auto-chat if provided
-              if (chat && this.agents.has(matchedAgentId)) {
-                this.handleChat(matchedAgentId, chat);
-              }
-
-              // Update work summary if provided
+              // Path-independent updates: workSummary lands even when this
+              // POST carried no file path (e.g. interval summary refresh).
               if (workSummary && this.agents.has(matchedAgentId)) {
-                (this.agents.get(matchedAgentId)!.info as any).workSummary = workSummary;
+                this.agents.get(matchedAgentId)!.info.workSummary = workSummary;
               }
 
               this.broadcastState(teamKey);
@@ -231,7 +244,7 @@ export class RelayServer {
               status: agent.info.status,
               branch: agent.info.branch,
               activeFiles: agent.info.activeFiles,
-              workSummary: (agent.info as any).workSummary,
+              workSummary: agent.info.workSummary,
             });
           }
         }
@@ -341,10 +354,27 @@ export class RelayServer {
           if (agentId) {
             const summaryAgent = this.agents.get(agentId);
             if (summaryAgent) {
-              (summaryAgent.info as any).workSummary = msg.summary;
+              summaryAgent.info.workSummary = msg.summary;
               this.broadcastState(summaryAgent.teamKey);
             }
           }
+          break;
+        case MessageType.UpdateIntent:
+          if (agentId) {
+            const intentAgent = this.agents.get(agentId);
+            if (intentAgent) {
+              intentAgent.info.intent = {
+                task: msg.task,
+                why: msg.why,
+                scope: msg.scope,
+                updatedAt: Date.now(),
+              };
+              this.broadcastState(intentAgent.teamKey);
+            }
+          }
+          break;
+        case MessageType.ShareThought:
+          this.handleThought(msg.agentId, msg.thought, msg.kind);
           break;
       }
     });
@@ -511,7 +541,12 @@ export class RelayServer {
     this.broadcastState(agent.teamKey);
   }
 
-  private handleFileChange(agentId: string, path: string, action: string): void {
+  private handleFileChange(
+    agentId: string,
+    path: string,
+    action: string,
+    extra: { linesAdded?: number; linesRemoved?: number; repo?: string } = {},
+  ): void {
     const agent = this.agents.get(agentId);
     if (!agent) return;
 
@@ -521,6 +556,9 @@ export class RelayServer {
       path,
       action: action as ActivityEntry["action"],
       timestamp: Date.now(),
+      linesAdded: extra.linesAdded,
+      linesRemoved: extra.linesRemoved,
+      repo: extra.repo,
     });
 
     // Auto-claim on change if not already claimed
@@ -549,6 +587,23 @@ export class RelayServer {
     for (const [, other] of this.agents) {
       if (other.teamKey === agent.teamKey && other.ws.readyState === WebSocket.OPEN) {
         other.ws.send(createMessage(chat));
+      }
+    }
+  }
+
+  private handleThought(agentId: string, thought: string, kind?: "decision" | "blocker" | "insight" | "plan" | "note"): void {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+    const msg = {
+      type: MessageType.Thought as const,
+      from: { agentId, userName: agent.info.userName },
+      thought,
+      kind,
+      timestamp: Date.now(),
+    };
+    for (const [, other] of this.agents) {
+      if (other.teamKey === agent.teamKey && other.ws.readyState === WebSocket.OPEN) {
+        other.ws.send(createMessage(msg));
       }
     }
   }

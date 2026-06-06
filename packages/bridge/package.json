@@ -1,6 +1,6 @@
 {
   "name": "@agent-town/bridge",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "type": "module",
   "files": [
     "dist"
@@ -11,6 +11,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "bridge": "dist/index.js",
+    "agent-town-bridge": "dist/index.js",
     "agent-town-mcp": "dist/index.js",
     "agent-town-simulate": "dist/simulator.js"
   },

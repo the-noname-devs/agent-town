@@ -1,6 +1,7 @@
 export { MessageType, AgentStatus, LockStatus } from "./types.js";
 export type {
   AgentInfo,
+  AgentIntent,
   FileLock,
   PresenceUpdate,
   ActivityEntry,
@@ -15,9 +16,13 @@ export type {
   SendChatMessage,
   ZoneClaimMessage,
   ZoneReleaseMessage,
+  UpdateSummaryMessage,
+  UpdateIntentMessage,
+  ShareThoughtMessage,
   ServerStateMessage,
   ServerConflictMessage,
   ServerChatMessage,
+  ServerThoughtMessage,
   ServerErrorMessage,
   ServerAckMessage,
   ClientMessage,

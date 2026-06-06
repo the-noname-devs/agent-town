@@ -2,13 +2,25 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { RelayClient } from "./relay-client.js";
 import { FileWatcher, type FileEvent } from "./file-watcher.js";
 import { generateAgentId } from "@agent-town/shared";
 import type { BridgeConfig, TeamState, ServerConflictMessage, ServerChatMessage } from "@agent-town/shared";
+
+function readPackageVersion(): string {
+  try {
+    // dist/mcp-server.js → ../package.json
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 function loadConfig(): BridgeConfig {
   const configPath = join(homedir(), ".agent-town", "config.json");
@@ -43,7 +55,7 @@ export class BridgeMcpServer {
   constructor() {
     this.mcp = new McpServer({
       name: "agent-town",
-      version: "0.2.0",
+      version: readPackageVersion(),
     });
 
     this.registerTools();
@@ -422,6 +434,44 @@ export class BridgeMcpServer {
         }
         this.relay.sendSummary(summary);
         return { content: [{ type: "text" as const, text: `Work summary updated: "${summary}"` }] };
+      }
+    );
+
+    // set_intent — structured "what + why + scope" that teammates can see at a glance
+    this.mcp.tool(
+      "set_intent",
+      "Broadcast your current task INTENT — what you're doing, why, and which files/paths you expect to touch. Call at the start of a new task and whenever your focus changes. Teammates see this first, before any file pings, so they understand the goal not just the edits.",
+      {
+        task: z.string().describe("Short task name. e.g. 'Refactoring auth to JWT'."),
+        why: z.string().optional().describe("Why this task matters. e.g. 'session cookies are too brittle for the SPA'."),
+        scope: z.array(z.string()).optional().describe("Path globs you expect to touch. e.g. ['src/auth/**', 'src/middleware/**']."),
+      },
+      async ({ task, why, scope }) => {
+        if (!this.relay) {
+          return { content: [{ type: "text" as const, text: "Not connected to relay." }] };
+        }
+        this.relay.sendIntent(task, why, scope);
+        const parts = [`task: ${task}`];
+        if (why) parts.push(`why: ${why}`);
+        if (scope && scope.length) parts.push(`scope: ${scope.join(", ")}`);
+        return { content: [{ type: "text" as const, text: `Intent broadcast — ${parts.join(" · ")}` }] };
+      }
+    );
+
+    // share_thought — push a one-line piece of reasoning into the team feed
+    this.mcp.tool(
+      "share_thought",
+      "Push a short THOUGHT into the team feed — your reasoning, a decision you're about to make, a blocker you hit, an insight worth surfacing. Use freely. Different from `send_message` (which is a direct message TO teammates); thoughts are FYI — narrate what you're doing so teammates have context. Examples: 'going to extract the repo pattern into a shared lib', 'hit a Supabase RLS issue on memberships, working around it', 'decided to keep dual webhook handlers for now'.",
+      {
+        thought: z.string().describe("Short thought (one sentence ideal)."),
+        kind: z.enum(["decision", "blocker", "insight", "plan", "note"]).optional().describe("Optional kind, helps the dashboard render."),
+      },
+      async ({ thought, kind }) => {
+        if (!this.relay) {
+          return { content: [{ type: "text" as const, text: "Not connected to relay." }] };
+        }
+        this.relay.sendThought(thought, kind);
+        return { content: [{ type: "text" as const, text: `Thought shared${kind ? ` [${kind}]` : ""}: "${thought}"` }] };
       }
     );
   }

@@ -11,11 +11,14 @@ export enum MessageType {
   ZoneClaim = "zone_claim",
   ZoneRelease = "zone_release",
   UpdateSummary = "update_summary",
+  UpdateIntent = "update_intent",
+  ShareThought = "share_thought",
 
   // Server -> Client
   State = "state",
   Conflict = "conflict",
   Chat = "chat",
+  Thought = "thought",
   Error = "error",
   Ack = "ack",
 }
@@ -33,6 +36,22 @@ export enum LockStatus {
 
 // --- Data Structures ---
 
+/**
+ * Structured intent — what the agent is trying to accomplish + why.
+ * Set explicitly by the agent via `set_intent`; broadcast in team state so
+ * teammates see the goal, not just the file edits.
+ */
+export interface AgentIntent {
+  /** Short task name. e.g. "Refactoring auth to JWT". */
+  task: string;
+  /** Why this task is being done. e.g. "session cookies are too brittle for the SPA". */
+  why?: string;
+  /** Path globs the agent expects to touch. e.g. ["src/auth/**", "src/middleware/**"]. */
+  scope?: string[];
+  /** When this intent was set/updated. */
+  updatedAt: number;
+}
+
 export interface AgentInfo {
   agentId: string;
   userName: string;
@@ -42,7 +61,10 @@ export interface AgentInfo {
   lastHeartbeat: number;
   activeFiles: string[];
   branch?: string;
+  /** Rolling auto-summary of recent work — broadcast at intervals from the hook. */
   workSummary?: string;
+  /** Structured intent set explicitly by the agent. */
+  intent?: AgentIntent;
   repo?: string;
 }
 
@@ -68,6 +90,10 @@ export interface ActivityEntry {
   action: "edit" | "write" | "delete" | "claim" | "release";
   timestamp: number;
   repo?: string;
+  /** Lines added in this edit. Approximation: counts every newline incl. whitespace. */
+  linesAdded?: number;
+  /** Lines removed in this edit. Approximation: counts every newline incl. whitespace. */
+  linesRemoved?: number;
 }
 
 export interface ProtectedZone {
@@ -145,6 +171,22 @@ export interface UpdateSummaryMessage {
   summary: string;
 }
 
+export interface UpdateIntentMessage {
+  type: MessageType.UpdateIntent;
+  task: string;
+  why?: string;
+  scope?: string[];
+}
+
+export interface ShareThoughtMessage {
+  type: MessageType.ShareThought;
+  agentId: string;
+  /** A short thought / reasoning snippet. */
+  thought: string;
+  /** Optional kind, helps the dashboard render. */
+  kind?: "decision" | "blocker" | "insight" | "plan" | "note";
+}
+
 // --- Server Messages ---
 
 export interface ServerStateMessage {
@@ -164,6 +206,14 @@ export interface ServerChatMessage {
   type: MessageType.Chat;
   from: { agentId: string; userName: string };
   message: string;
+  timestamp: number;
+}
+
+export interface ServerThoughtMessage {
+  type: MessageType.Thought;
+  from: { agentId: string; userName: string };
+  thought: string;
+  kind?: "decision" | "blocker" | "insight" | "plan" | "note";
   timestamp: number;
 }
 
@@ -189,12 +239,15 @@ export type ClientMessage =
   | SendChatMessage
   | ZoneClaimMessage
   | ZoneReleaseMessage
-  | UpdateSummaryMessage;
+  | UpdateSummaryMessage
+  | UpdateIntentMessage
+  | ShareThoughtMessage;
 
 export type ServerMessage =
   | ServerStateMessage
   | ServerConflictMessage
   | ServerChatMessage
+  | ServerThoughtMessage
   | ServerErrorMessage
   | ServerAckMessage;
 

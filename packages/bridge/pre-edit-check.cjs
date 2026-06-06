@@ -3,11 +3,56 @@
  * PreToolUse Hook — checks if a file is safe to edit before Claude proceeds.
  * Blocks the edit if another agent has the file locked or it's in a protected zone.
  * Fails open (allows) on any error or timeout.
+ *
+ * Side effect: for Write tool, snapshots the current file line count into a
+ * tiny cache under ~/.agent-town/pre-edit-cache.json so the PostToolUse hook
+ * can compute lines added/removed (Edit tool gets that from tool_input directly).
  */
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { execSync } = require("child_process");
+
+function countLines(content) {
+  if (!content) return 0;
+  // Number of \n + 1 if file isn't empty (trailing newline counts as the
+  // line it terminates, so we don't add 1 for content ending in \n).
+  const n = (content.match(/\n/g) || []).length;
+  return n + (content.endsWith("\n") || content === "" ? 0 : 1);
+}
+
+function snapshotForWrite(input) {
+  const toolName = input.tool_name || "";
+  if (toolName !== "Write") return;
+  const filePath = input.tool_input?.file_path || input.tool_input?.path || "";
+  if (!filePath) return;
+
+  let lines = 0;
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    lines = countLines(raw);
+  } catch {
+    // File doesn't exist yet → 0 lines pre-write
+  }
+
+  const cachePath = path.join(os.homedir(), ".agent-town", "pre-edit-cache.json");
+  let cache = {};
+  try {
+    if (fs.existsSync(cachePath)) cache = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+  } catch { /* ignore */ }
+  cache[filePath] = { lines, ts: Date.now() };
+
+  // Garbage collect anything older than 10 minutes
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const k of Object.keys(cache)) {
+    if (!cache[k] || cache[k].ts < cutoff) delete cache[k];
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify(cache));
+  } catch { /* ignore */ }
+}
 
 try {
   const input = JSON.parse(fs.readFileSync("/dev/stdin", "utf-8"));
@@ -15,10 +60,12 @@ try {
   const cwd = input.cwd || process.cwd();
 
   if (!filePath) {
-    // No file path — allow
     console.log(JSON.stringify({}));
     process.exit(0);
   }
+
+  // Snapshot before kicking off the network check (sync, fast).
+  snapshotForWrite(input);
 
   const configPath = path.join(os.homedir(), ".agent-town", "config.json");
   if (!fs.existsSync(configPath)) {
@@ -70,7 +117,6 @@ try {
 
   const url = `${relayHttp}/check-conflict?teamKey=${encodeURIComponent(config.teamKey)}&path=${encodeURIComponent(relativePath)}&agentId=${encodeURIComponent(agentId)}&userName=${encodeURIComponent(userName)}`;
 
-  // Use AbortController for timeout
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3000);
 
@@ -87,16 +133,13 @@ try {
           },
         }));
       } else {
-        // File is clear
         console.log(JSON.stringify({}));
       }
     })
     .catch(() => {
       clearTimeout(timeout);
-      // Fail open — allow on any error
       console.log(JSON.stringify({}));
     });
 } catch {
-  // Fail open
   console.log(JSON.stringify({}));
 }

@@ -18,7 +18,7 @@ switch (command) {
     await status();
     break;
   case "setup-claude":
-    await setupClaude();
+    await setupClaude({ dev: process.argv.includes("--dev") });
     break;
   case "help":
   case undefined:
@@ -42,6 +42,8 @@ Commands:
   init           Manual setup — paste relay URL and team key
   status         Show current team status from the relay server
   setup-claude   Configure Claude Code to use agent-town (MCP + hooks)
+                   --dev    point MCP + hooks at the local clone of @agent-town/bridge
+                            (for maintainers iterating without publishing)
   help           Show this help message
 
 Examples:

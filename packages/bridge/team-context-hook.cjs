@@ -90,7 +90,25 @@ try {
       }
 
       const teamInfo = `[Agent Town] Teammates: ${parts.join(" | ")}`;
-      const instruction = `\n[Agent Town Instructions] You are part of a team. Before starting work, call set_work_summary with a short sentence describing what you're about to do (e.g. "Refactoring auth flow to use JWT tokens"). Update it when your focus changes. Also use send_message to communicate important decisions or blockers to teammates. Check teammate summaries above to avoid conflicts.`;
+      const instruction = `
+[Agent Town Instructions]
+You are part of a team. Teammates above see what you're doing in real time — but only if you tell them. Narrate intent and reasoning, not just file paths.
+
+REQUIRED at task start (and again whenever your focus changes):
+  set_intent({ task, why?, scope? })
+  → the SHORT goal + WHY + which paths you expect to touch.
+  Example: set_intent({ task: "Refactor auth to JWT", why: "session cookies break the SPA", scope: ["src/auth/**","src/middleware/**"] })
+
+ENCOURAGED whenever you make a non-obvious decision, hit a blocker, or have an insight worth sharing:
+  share_thought({ thought, kind? })
+  → one sentence of reasoning. kind ∈ "decision" | "blocker" | "insight" | "plan" | "note".
+  Examples:
+    share_thought({ kind: "decision", thought: "going to extract the repo pattern into a shared lib" })
+    share_thought({ kind: "blocker", thought: "Supabase RLS on memberships is blocking the join; trying admin client" })
+
+USE send_message only for direct asks/answers to teammates (not narration). Use claim_file / claim_zone if you'll be heavily touching a file or directory.
+
+File edits are auto-broadcast — you don't need to chat about them. Share the THINKING.`;
 
       console.log(JSON.stringify({
         hookSpecificOutput: {

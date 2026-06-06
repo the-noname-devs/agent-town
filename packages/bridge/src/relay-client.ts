@@ -142,7 +142,25 @@ export class RelayClient extends EventEmitter {
     this.send({
       type: MessageType.UpdateSummary,
       summary,
-    } as any);
+    });
+  }
+
+  sendIntent(task: string, why?: string, scope?: string[]): void {
+    this.send({
+      type: MessageType.UpdateIntent,
+      task,
+      why,
+      scope,
+    });
+  }
+
+  sendThought(thought: string, kind?: "decision" | "blocker" | "insight" | "plan" | "note"): void {
+    this.send({
+      type: MessageType.ShareThought,
+      agentId: this.config.agentId,
+      thought,
+      kind,
+    });
   }
 
   claimZone(pattern: string, reason?: string): void {

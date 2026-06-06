@@ -1,6 +1,6 @@
 {
   "name": "agent-town",
-  "version": "0.2.0",
+  "version": "0.2.7",
   "private": true,
   "description": "Real-time collaboration for Claude Code teams — see what your teammates' agents are editing",
   "license": "MIT",
